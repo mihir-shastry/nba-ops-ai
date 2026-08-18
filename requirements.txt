@@ -10,7 +10,7 @@ httpx==0.26.0
 # Data
 pandas==2.2.0
 numpy==1.26.4
-nba_api==1.4.1
+nba_api>=1.11.4
 
 # Visualization
 plotly==5.18.0
