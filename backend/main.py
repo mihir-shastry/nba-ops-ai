@@ -1,17 +1,23 @@
 """
 FastAPI Backend
-Serves SQL queries, shot visualizations, and RAG chatbot endpoints.
+Serves SQL queries, shot visualizations, and Text-to-SQL chatbot endpoints.
 """
 
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import uvicorn
 
+from dotenv import load_dotenv
+
+# Load .env file from project root
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+
 from .sql_engine import execute_query, get_prebuilt_queries, get_table_info
 from .shot_charts import get_available_players, get_shot_data, get_zone_stats
-from .rag_chat import get_knowledge_base, generate_response
+from .text_to_sql import answer_question
 
 app = FastAPI(
     title="NBA Operations AI Assistant",
@@ -44,20 +50,21 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str
-    sources: list
-
-
-# Knowledge base singleton
-knowledge_base = None
+    sql: str
+    columns: list
+    rows: list
 
 
 @app.on_event("startup")
 async def startup_event():
-    """Build RAG knowledge base on startup."""
-    global knowledge_base
-    print("Building RAG knowledge base...")
-    knowledge_base = get_knowledge_base()
-    print(f"Knowledge base ready: {len(knowledge_base.documents)} documents")
+    """Check for Gemini API key on startup."""
+    import os
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        print("WARNING: GEMINI_API_KEY not set. Chatbot will not work.")
+        print("Set it with: export GEMINI_API_KEY=your_key_here")
+    else:
+        print("Gemini API key found. Chatbot ready.")
 
 
 # SQL Endpoints
@@ -76,7 +83,8 @@ async def list_prebuilt_queries():
             {
                 "key": key,
                 "name": value["name"],
-                "description": value["description"]
+                "description": value["description"],
+                "sql": value["sql"]
             }
             for key, value in queries.items()
         ]
@@ -123,29 +131,41 @@ async def get_player_zones(player_name: str):
     return {"zones": zones}
 
 
-# RAG Chat Endpoints
+# Text-to-SQL Chat Endpoints
 @app.post("/chat/ask", response_model=ChatResponse)
 async def ask_question(request: ChatRequest):
     """Ask a natural language question about NBA data."""
-    if not knowledge_base:
+    import os
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
         raise HTTPException(
             status_code=503,
-            detail="Knowledge base not initialized"
+            detail="GEMINI_API_KEY not configured. Please set the environment variable."
         )
-
-    answer = generate_response(request.question, knowledge_base)
-    results = knowledge_base.search(request.question, k=3)
-    sources = [r["metadata"] for r in results]
-
-    return ChatResponse(answer=answer, sources=sources)
+    
+    try:
+        result = answer_question(request.question)
+        return ChatResponse(
+            answer=result["answer"],
+            sql=result["sql"],
+            columns=result["columns"],
+            rows=result["rows"]
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing question: {str(e)}"
+        )
 
 
 @app.get("/chat/health")
 async def chat_health():
-    """Check if RAG system is ready."""
+    """Check if Text-to-SQL system is ready."""
+    import os
+    api_key = os.environ.get("GEMINI_API_KEY")
     return {
-        "status": "ready" if knowledge_base else "initializing",
-        "documents": len(knowledge_base.documents) if knowledge_base else 0
+        "status": "ready" if api_key else "missing_api_key",
+        "provider": "gemini" if api_key else None
     }
 
 

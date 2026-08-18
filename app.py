@@ -1,12 +1,17 @@
 """
 NBA Operations AI Assistant — Streamlit Frontend
-Interactive dashboard for SQL analytics, shot charts, and RAG chatbot.
+Interactive dashboard for SQL analytics, shot charts, and AI chatbot.
 """
 
+import os
 import streamlit as st
 import httpx
 import pandas as pd
 import plotly.graph_objects as go
+from dotenv import load_dotenv
+
+# Load .env file from project root
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 BACKEND_URL = "http://localhost:8000"
 
@@ -87,6 +92,13 @@ st.markdown("""
         font-weight: 700;
     }
 
+    /* SQL code block */
+    .stCode {
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
     /* Input styling */
     .stTextArea textarea, .stSelectbox div[data-baseweb="select"] {
         background: rgba(255, 255, 255, 0.08) !important;
@@ -159,7 +171,7 @@ with st.sidebar:
     st.markdown("### Tech Stack")
     st.markdown("""
     `Python` `FastAPI` `Streamlit`
-    `SQLite` `FAISS` `Plotly`
+    `SQLite` `Gemini AI` `Plotly`
     """)
 
     st.markdown("---")
@@ -192,23 +204,40 @@ with tab1:
             response = httpx.get(f"{BACKEND_URL}/sql/prebuilt", timeout=10)
             queries = response.json()["queries"]
 
+            # Create a mapping of keys to SQL
+            query_map = {q["key"]: q for q in queries}
+
             selected = st.selectbox(
                 "Pre-built Queries",
                 options=[q["key"] for q in queries],
                 format_func=lambda x: next(q["name"] for q in queries if q["key"] == x)
             )
 
-            desc = next(q["description"] for q in queries if q["key"] == selected)
-            st.info(desc)
-        except:
-            st.warning("Could not load queries")
+            if selected:
+                desc = query_map[selected]["description"]
+                sql = query_map[selected]["sql"]
+                st.info(desc)
+                
+                # Show a preview of the SQL
+                with st.expander("👁️ Preview SQL", expanded=False):
+                    st.code(sql, language="sql")
+                
+                # Button to use this query
+                if st.button("📝 Use This Query", use_container_width=True):
+                    st.session_state.selected_sql = sql
+                    st.rerun()
+        except Exception as e:
+            st.warning(f"Could not load queries: {e}")
             selected = None
 
     with col2:
+        # Get the SQL to display (from prebuilt selection or default)
+        default_sql = st.session_state.get("selected_sql", "SELECT * FROM league_leaders ORDER BY points_per_game DESC LIMIT 10")
+        
         # Custom SQL input
         custom_sql = st.text_area(
             "SQL Query",
-            value="SELECT * FROM league_leaders ORDER BY points_per_game DESC LIMIT 10",
+            value=default_sql,
             height=120,
             label_visibility="collapsed"
         )
@@ -381,38 +410,62 @@ with tab2:
 # Tab 3: AI Chatbot
 with tab3:
     st.markdown("### AI Analytics Assistant")
-    st.markdown("*Ask questions about NBA players and teams*")
+    st.markdown("*Ask questions about NBA players and teams — powered by Text-to-SQL*")
 
-    # Initialize chat history
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+    # Check if API key is configured
+    import os
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        st.warning("⚠️ GEMINI_API_KEY not configured. Please set it in your environment to use the AI assistant.")
+        st.code("export GEMINI_API_KEY=your_key_here", language="bash")
+    else:
+        # Initialize chat history
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
 
-    # Display chat history
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+        # Display chat history
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+                if msg.get("sql"):
+                    with st.expander("📝 Generated SQL", expanded=False):
+                        st.code(msg["sql"], language="sql")
 
-    # Chat input
-    if query := st.chat_input("Ask about NBA players, teams, or stats..."):
-        with st.chat_message("user"):
-            st.markdown(query)
-        st.session_state.messages.append({"role": "user", "content": query})
+        # Chat input
+        if query := st.chat_input("Ask about NBA players, teams, or stats..."):
+            with st.chat_message("user"):
+                st.markdown(query)
+            st.session_state.messages.append({"role": "user", "content": query})
 
-        with st.chat_message("assistant"):
-            with st.spinner("Searching knowledge base..."):
-                try:
-                    response = httpx.post(
-                        f"{BACKEND_URL}/chat/ask",
-                        json={"question": query},
-                        timeout=30
-                    )
-                    answer = response.json()["answer"]
-                    st.markdown(answer)
-                except Exception as e:
-                    answer = f"Error: {e}"
-                    st.error(answer)
+            with st.chat_message("assistant"):
+                with st.spinner("Generating SQL and querying database..."):
+                    try:
+                        response = httpx.post(
+                            f"{BACKEND_URL}/chat/ask",
+                            json={"question": query},
+                            timeout=60
+                        )
+                        
+                        if response.status_code != 200:
+                            # Handle error responses
+                            error_detail = response.json().get("detail", "Unknown error")
+                            answer = f"Error: {error_detail}"
+                            st.error(answer)
+                            sql = None
+                        else:
+                            result = response.json()
+                            answer = result["answer"]
+                            sql = result["sql"]
+                            
+                            st.markdown(answer)
+                            with st.expander("📝 Generated SQL", expanded=False):
+                                st.code(sql, language="sql")
+                    except Exception as e:
+                        answer = f"Error: {e}"
+                        st.error(answer)
+                        sql = None
 
-        st.session_state.messages.append({"role": "assistant", "content": answer})
+            st.session_state.messages.append({"role": "assistant", "content": answer, "sql": sql})
 
     # Example questions
     with st.expander("💡 Example Questions"):
@@ -420,7 +473,9 @@ with tab3:
             "Who are the top 5 scorers?",
             "Compare team records",
             "How does Shai perform in away games?",
-            "Which players have the best FG%?"
+            "Which players have the best FG%?",
+            "Who leads the league in assists?",
+            "What's the average points per game by team?"
         ]
         for ex in examples:
             st.markdown(f"• {ex}")
