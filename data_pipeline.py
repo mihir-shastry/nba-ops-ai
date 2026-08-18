@@ -9,32 +9,50 @@ import pandas as pd
 import os
 import time
 import functools
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from nba_api.stats.endpoints import (
     leagueleaders,
     leaguedashteamstats,
-    playergamelogs,
+    leaguegamefinder,
     shotchartdetail
 )
 from nba_api.stats.static import teams
 
 # Configuration
 REQUEST_TIMEOUT = 60
-DELAY_BETWEEN_CALLS = 1.0
+DELAY_BETWEEN_CALLS = 0.7
 MAX_RETRIES = 2
 BACKOFF_BASE = 2.0
+MAX_WORKERS = 5
+PLAYER_LIMIT = 50
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "nba_data.db")
+
+# Thread-safe rate limiting
+_rate_lock = threading.Lock()
+_last_request_time = [0.0]
+
+
+def _rate_limit():
+    """Global rate limiter — ensures minimum delay between API calls across all threads."""
+    with _rate_lock:
+        elapsed = time.time() - _last_request_time[0]
+        if elapsed < DELAY_BETWEEN_CALLS:
+            time.sleep(DELAY_BETWEEN_CALLS - elapsed)
+        _last_request_time[0] = time.time()
 
 
 # Retry decorator with exponential backoff
 def retry_with_backoff(max_retries=MAX_RETRIES, backoff_base=BACKOFF_BASE):
-    """Decorator that retries a function on exception with exponential backoff."""
+    """Retries a function on exception with exponential backoff."""
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             last_exception = None
             for attempt in range(max_retries):
                 try:
+                    _rate_limit()
                     return func(*args, **kwargs)
                 except Exception as e:
                     last_exception = e
@@ -51,7 +69,7 @@ def retry_with_backoff(max_retries=MAX_RETRIES, backoff_base=BACKOFF_BASE):
 def get_db():
     """Get SQLite database connection."""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    return sqlite3.connect(DB_PATH)
+    return sqlite3.connect(DB_PATH, check_same_thread=False)
 
 
 def init_database(conn):
@@ -119,8 +137,8 @@ def init_database(conn):
             seconds_remaining INTEGER,
             event_type TEXT,
             shot_made INTEGER,
-            x_coord REAL,
-            y_coord REAL,
+            loc_x REAL,
+            loc_y REAL,
             shot_distance REAL,
             shot_zone_basic TEXT,
             shot_zone_area TEXT,
@@ -140,7 +158,7 @@ def _api_league_leaders():
     return leagueleaders.LeagueLeaders(
         stat_category_abbreviation="PTS",
         per_mode48="PerGame",
-        season="2024-25",
+        season="2025-26",
         timeout=REQUEST_TIMEOUT
     )
 
@@ -183,7 +201,7 @@ def fetch_league_leaders(conn):
 def _api_team_stats():
     """Raw API call for team stats."""
     return leaguedashteamstats.LeagueDashTeamStats(
-        season="2024-25",
+        season="2025-26",
         per_mode_detailed="PerGame",
         timeout=REQUEST_TIMEOUT
     )
@@ -213,40 +231,72 @@ def fetch_team_stats(conn):
     print(f"  Inserted {len(df)} teams")
 
 
+# --- Batch game logs via LeagueGameFinder ---
+
 @retry_with_backoff()
-def _api_game_logs(player_id):
-    """Raw API call for a single player's game logs."""
-    return playergamelogs.PlayerGameLogs(
-        player_id_nullable=player_id,
-        season_nullable="2024-25",
+def _api_all_game_logs():
+    """Raw API call — fetches ALL player game logs for the season in one request."""
+    return leaguegamefinder.LeagueGameFinder(
+        player_or_team_abbreviation="P",
+        season_nullable="2025-26",
         timeout=REQUEST_TIMEOUT
     )
 
 
 def fetch_game_logs(conn, player_ids):
-    """Fetch game logs for specified players."""
-    print("Fetching game logs...")
-    all_logs = []
+    """Fetch game logs for all players in a single batch request, then filter to top N."""
+    print("Fetching game logs (single batch request)...")
 
-    for i, pid in enumerate(player_ids):
-        print(f"  Fetching logs for player {pid}...")
-        try:
-            logs = _api_game_logs(pid)
-            df = logs.get_data_frames()[0]
-            if not df.empty:
-                df.columns = [c.lower().replace(" ", "_") for c in df.columns]
-                all_logs.append(df)
-        except Exception as e:
-            print(f"    Skipping player {pid}: {e}")
+    finder = _api_all_game_logs()
+    df = finder.get_data_frames()[0]
+    print(f"  Fetched {len(df)} total game logs")
 
-        if i < len(player_ids) - 1:
-            time.sleep(DELAY_BETWEEN_CALLS)
+    # Filter to players in our league_leaders table
+    df.columns = [c.lower().replace(" ", "_") for c in df.columns]
 
-    if all_logs:
-        combined = pd.concat(all_logs, ignore_index=True)
-        combined.to_sql("player_game_logs", conn, if_exists="replace", index=False)
-        print(f"  Inserted {len(combined)} game logs")
+    # Map NBA API column names to our schema
+    rename_map = {
+        "player_id": "player_id",
+        "player_name": "player_name",
+        "team_abbreviation": "team_abbreviation",
+        "game_date": "game_date",
+        "matchup": "matchup",
+        "wl": "win",
+        "pts": "points",
+        "reb": "rebounds",
+        "ast": "assists",
+        "stl": "steals",
+        "blk": "blocks",
+        "tov": "turnovers",
+        "min": "minutes",
+        "fg_pct": "field_goal_pct",
+        "fg3_pct": "three_point_pct",
+        "plus_minus": "plus_minus"
+    }
 
+    # Only rename columns that exist
+    available = df.columns.tolist()
+    actual_rename = {k: v for k, v in rename_map.items() if k in available}
+    df = df.rename(columns=actual_rename)
+
+    # Filter to top N players
+    df = df[df["player_id"].isin(player_ids)]
+
+    # Select only columns that exist in our schema
+    target_cols = [
+        "player_id", "player_name", "team_abbreviation", "game_date",
+        "matchup", "win", "points", "rebounds", "assists", "steals",
+        "blocks", "turnovers", "minutes", "field_goal_pct",
+        "three_point_pct", "plus_minus"
+    ]
+    available_target = [c for c in target_cols if c in df.columns]
+    df = df[available_target]
+
+    df.to_sql("player_game_logs", conn, if_exists="replace", index=False)
+    print(f"  Inserted {len(df)} game logs for top {len(player_ids)} players")
+
+
+# --- Threaded shot chart fetch ---
 
 @retry_with_backoff()
 def _api_shot_charts(player_id, team_id):
@@ -254,44 +304,55 @@ def _api_shot_charts(player_id, team_id):
     return shotchartdetail.ShotChartDetail(
         player_id=player_id,
         team_id=team_id,
-        season_nullable="2024-25",
+        season_nullable="2025-26",
         context_measure_simple="FGA",
         timeout=REQUEST_TIMEOUT
     )
 
 
+def _fetch_single_shot_chart(player_id, team_id):
+    """Fetch and return a single player's shot chart as a DataFrame."""
+    try:
+        shots = _api_shot_charts(player_id, team_id)
+        df = shots.get_data_frames()[0]
+        if not df.empty:
+            df.columns = [c.lower().replace(" ", "_") for c in df.columns]
+            return df
+        return None
+    except Exception as e:
+        print(f"    Skipping shot chart for player {player_id}: {e}")
+        return None
+
+
 def fetch_shot_charts(conn, player_ids):
-    """Fetch shot chart data for specified players."""
-    print("Fetching shot charts...")
+    """Fetch shot chart data for specified players using thread pool."""
+    print(f"Fetching shot charts ({len(player_ids)} players, {MAX_WORKERS} threads)...")
+
     nba_teams = {t["abbreviation"]: t["id"] for t in teams.get_teams()}
-    all_shots = []
 
-    for i, pid in enumerate(player_ids):
-        print(f"  Fetching shots for player {pid}...")
-        try:
-            cursor = conn.execute(
-                "SELECT team_abbreviation FROM league_leaders WHERE player_id = ?",
-                (pid,)
-            )
-            row = cursor.fetchone()
-            if not row:
-                continue
-            team_abbrev = row[0]
-            team_id = nba_teams.get(team_abbrev, 0)
+    # Build player_id -> team_id mapping from league_leaders table
+    team_map = {}
+    cursor = conn.execute("SELECT player_id, team_abbreviation FROM league_leaders")
+    for row in cursor:
+        team_map[row[0]] = nba_teams.get(row[1], 0)
 
-            shots = _api_shot_charts(pid, team_id)
-            df = shots.get_data_frames()[0]
-            if not df.empty:
-                df.columns = [c.lower().replace(" ", "_") for c in df.columns]
-                all_shots.append(df)
-        except Exception as e:
-            print(f"    Skipping player {pid}: {e}")
+    results = []
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {
+            executor.submit(_fetch_single_shot_chart, pid, team_map.get(pid, 0)): pid
+            for pid in player_ids
+        }
+        for i, future in enumerate(as_completed(futures), 1):
+            pid = futures[future]
+            df = future.result()
+            if df is not None:
+                results.append(df)
+                print(f"  [{i}/{len(player_ids)}] Fetched shots for player {pid}")
+            else:
+                print(f"  [{i}/{len(player_ids)}] Skipped player {pid}")
 
-        if i < len(player_ids) - 1:
-            time.sleep(DELAY_BETWEEN_CALLS)
-
-    if all_shots:
-        combined = pd.concat(all_shots, ignore_index=True)
+    if results:
+        combined = pd.concat(results, ignore_index=True)
         combined.to_sql("shot_chart", conn, if_exists="replace", index=False)
         print(f"  Inserted {len(combined)} shots")
 
@@ -321,13 +382,13 @@ def run_pipeline():
     """Main pipeline execution."""
     print("=== NBA Data Pipeline ===")
     print(f"  nba_api version: {__import__('nba_api').__version__}")
+    print(f"  Threads: {MAX_WORKERS}")
+    print(f"  Player limit: {PLAYER_LIMIT}")
+    print(f"  Rate limit delay: {DELAY_BETWEEN_CALLS}s\n")
 
     if is_database_populated():
         print("  Database already populated — skipping fetch. Delete data/nba_data.db to re-fetch.")
         return
-
-    print(f"  Delay between calls: {DELAY_BETWEEN_CALLS}s")
-    print(f"  Max retries: {MAX_RETRIES}\n")
 
     conn = get_db()
     init_database(conn)
@@ -338,9 +399,8 @@ def run_pipeline():
     fetch_team_stats(conn)
     time.sleep(DELAY_BETWEEN_CALLS)
 
-    top_player_ids = leaders_df.head(20)["player_id"].tolist()
+    top_player_ids = leaders_df.head(PLAYER_LIMIT)["player_id"].tolist()
     fetch_game_logs(conn, top_player_ids)
-    time.sleep(DELAY_BETWEEN_CALLS)
 
     fetch_shot_charts(conn, top_player_ids[:15])
 

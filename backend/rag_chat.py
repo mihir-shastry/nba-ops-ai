@@ -73,8 +73,8 @@ class NBAKnowledgeBase:
 
         # Create documents from game logs
         game_logs = conn.execute("""
-            SELECT gl.player_name, gl.game_date, gl.matchup, gl.wl,
-                   gl.pts, gl.reb, gl.ast
+            SELECT gl.player_name, gl.game_date, gl.matchup, gl.win,
+                   gl.points, gl.rebounds, gl.assists
             FROM player_game_logs gl
             ORDER BY gl.game_date DESC
             LIMIT 100

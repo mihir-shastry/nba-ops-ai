@@ -54,9 +54,9 @@ PREBUILT_QUERIES = {
                     ELSE 'Away'
                 END as location,
                 COUNT(*) as games,
-                ROUND(AVG(pts), 1) as avg_points,
-                ROUND(AVG(ast), 1) as avg_assists,
-                ROUND(AVG(reb), 1) as avg_rebounds
+                ROUND(AVG(points), 1) as avg_points,
+                ROUND(AVG(assists), 1) as avg_assists,
+                ROUND(AVG(rebounds), 1) as avg_rebounds
             FROM player_game_logs
             GROUP BY player_name, location
             HAVING COUNT(*) >= 10
