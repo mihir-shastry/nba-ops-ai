@@ -38,7 +38,7 @@ def get_shot_data(player_name: str) -> dict:
     conn = get_db()
     try:
         query = """
-            SELECT x_coord, y_coord, shot_made, shot_distance,
+            SELECT loc_x, loc_y, shot_made_flag, shot_distance,
                    shot_zone_basic, shot_zone_area, game_date
             FROM shot_chart
             WHERE player_name = ?
@@ -50,7 +50,7 @@ def get_shot_data(player_name: str) -> dict:
 
         shots = df.to_dict("records")
         total = len(df)
-        made = df["shot_made"].sum()
+        made = df["shot_made_flag"].sum()
 
         summary = {
             "total_attempts": total,
@@ -77,8 +77,8 @@ def get_zone_stats(player_name: str) -> list:
             SELECT
                 shot_zone_basic,
                 COUNT(*) as attempts,
-                SUM(shot_made) as makes,
-                ROUND(SUM(shot_made) * 100.0 / COUNT(*), 1) as fg_pct,
+                SUM(shot_made_flag) as makes,
+                ROUND(SUM(shot_made_flag) * 100.0 / COUNT(*), 1) as fg_pct,
                 ROUND(AVG(shot_distance), 1) as avg_distance
             FROM shot_chart
             WHERE player_name = ?

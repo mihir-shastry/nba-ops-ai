@@ -51,30 +51,30 @@ class NBAKnowledgeBase:
 
         # Create documents from team stats
         teams = conn.execute("""
-            SELECT team_name, abbreviation, wins, losses, points_per_game,
+            SELECT team_name, wins, losses, points_per_game,
                    rebounds_per_game, assists_per_game, field_goal_pct
             FROM team_stats
             ORDER BY wins DESC
         """).fetchall()
 
         for t in teams:
-            win_pct = t[2] / (t[2] + t[3]) * 100 if (t[2] + t[3]) > 0 else 0
+            win_pct = t[1] / (t[1] + t[2]) * 100 if (t[1] + t[2]) > 0 else 0
             doc = (
-                f"{t[0]} ({t[1]}) has a record of {t[2]}-{t[3]} "
+                f"{t[0]} has a record of {t[1]}-{t[2]} "
                 f"({win_pct:.1f}% win rate). "
-                f"They average {t[4]} points, {t[5]} rebounds, and {t[6]} assists per game."
+                f"They average {t[3]} points, {t[4]} rebounds, and {t[5]} assists per game."
             )
             self.documents.append(doc)
             self.doc_metadata.append({
                 "type": "team_stats",
                 "team_name": t[0],
-                "team": t[1]
+                "team": t[0]
             })
 
         # Create documents from game logs
         game_logs = conn.execute("""
-            SELECT gl.player_name, gl.game_date, gl.matchup, gl.win,
-                   gl.points, gl.rebounds, gl.assists
+            SELECT gl.player_name, gl.game_date, gl.matchup, gl.wl,
+                   gl.pts, gl.reb, gl.ast
             FROM player_game_logs gl
             ORDER BY gl.game_date DESC
             LIMIT 100
