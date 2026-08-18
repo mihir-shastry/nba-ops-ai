@@ -2,9 +2,6 @@
 NBA Data Pipeline
 Fetches player stats, game logs, and shot data from the NBA API
 and stores them in SQLite.
-
-Handles NBA.com rate limiting with exponential backoff retries
-and generous delays between requests.
 """
 
 import sqlite3
@@ -20,16 +17,16 @@ from nba_api.stats.endpoints import (
 )
 from nba_api.stats.static import teams
 
-# --- Configuration ---
-REQUEST_TIMEOUT = 60       # seconds per HTTP request
-DELAY_BETWEEN_CALLS = 1.0  # seconds between API calls (NBA.com rate limits)
-MAX_RETRIES = 2            # retry attempts per API call
-BACKOFF_BASE = 2.0         # base seconds for exponential backoff
+# Configuration
+REQUEST_TIMEOUT = 60
+DELAY_BETWEEN_CALLS = 1.0
+MAX_RETRIES = 2
+BACKOFF_BASE = 2.0
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "nba_data.db")
 
 
-# --- Retry decorator with exponential backoff ---
+# Retry decorator with exponential backoff
 def retry_with_backoff(max_retries=MAX_RETRIES, backoff_base=BACKOFF_BASE):
     """Decorator that retries a function on exception with exponential backoff."""
     def decorator(func):
@@ -50,7 +47,7 @@ def retry_with_backoff(max_retries=MAX_RETRIES, backoff_base=BACKOFF_BASE):
     return decorator
 
 
-# --- Database helpers ---
+# Database helpers
 def get_db():
     """Get SQLite database connection."""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -136,7 +133,7 @@ def init_database(conn):
     conn.commit()
 
 
-# --- API fetch functions (each decorated with retry) ---
+# API fetch functions with retry
 @retry_with_backoff()
 def _api_league_leaders():
     """Raw API call for league leaders."""
@@ -242,7 +239,6 @@ def fetch_game_logs(conn, player_ids):
         except Exception as e:
             print(f"    Skipping player {pid}: {e}")
 
-        # Rate-limit delay between calls
         if i < len(player_ids) - 1:
             time.sleep(DELAY_BETWEEN_CALLS)
 
@@ -291,7 +287,6 @@ def fetch_shot_charts(conn, player_ids):
         except Exception as e:
             print(f"    Skipping player {pid}: {e}")
 
-        # Rate-limit delay between calls
         if i < len(player_ids) - 1:
             time.sleep(DELAY_BETWEEN_CALLS)
 
@@ -301,7 +296,7 @@ def fetch_shot_charts(conn, player_ids):
         print(f"  Inserted {len(combined)} shots")
 
 
-# --- Cache check ---
+# Cache check
 REQUIRED_TABLES = ["league_leaders", "team_stats", "player_game_logs", "shot_chart"]
 
 def is_database_populated():
@@ -321,13 +316,12 @@ def is_database_populated():
         return False
 
 
-# --- Main pipeline ---
+# Main pipeline
 def run_pipeline():
     """Main pipeline execution."""
     print("=== NBA Data Pipeline ===")
     print(f"  nba_api version: {__import__('nba_api').__version__}")
 
-    # Cache: skip if DB already has data
     if is_database_populated():
         print("  Database already populated — skipping fetch. Delete data/nba_data.db to re-fetch.")
         return
@@ -338,14 +332,12 @@ def run_pipeline():
     conn = get_db()
     init_database(conn)
 
-    # Fetch aggregate data
     leaders_df = fetch_league_leaders(conn)
     time.sleep(DELAY_BETWEEN_CALLS)
 
     fetch_team_stats(conn)
     time.sleep(DELAY_BETWEEN_CALLS)
 
-    # Fetch detailed data for top players
     top_player_ids = leaders_df.head(20)["player_id"].tolist()
     fetch_game_logs(conn, top_player_ids)
     time.sleep(DELAY_BETWEEN_CALLS)

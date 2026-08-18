@@ -108,11 +108,11 @@ def execute_query(query: str) -> dict:
     """
     Execute a SQL query and return results.
 
-    Args:
-        query: SQL query string
-
-    Returns:
-        dict with 'columns' and 'rows' keys
+    Returns dict with:
+        - columns: list of column names
+        - rows: list of row lists
+        - row_count: number of rows
+        - error: error message if query failed, else None
     """
     conn = get_db()
     try:
@@ -140,7 +140,7 @@ def get_prebuilt_queries() -> dict:
 
 
 def get_table_info() -> list:
-    """Get information about all tables in the database."""
+    """Get metadata for all tables in the database."""
     conn = get_db()
     try:
         cursor = conn.execute(
