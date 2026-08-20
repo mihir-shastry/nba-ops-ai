@@ -50,7 +50,18 @@ Then open http://localhost:8501
 - Zone efficiency breakdown by shot area
 - Temporal trends showing shot patterns over time
 
-### 3. RAG AI Assistant
+### 3. Team Dashboard
+- Conference standings (East/West) with win% and games behind
+- Team overview with core stats (PPG, RPG, APG, FG%, 3PT%)
+- Advanced metrics (offensive/defensive rating, pace, true shooting)
+- Recent form (last 10 games) and top roster players
+
+### 4. Game Log Explorer
+- Filterable table of all game results
+- Filter by team and W/L
+- Box-score style data: points, rebounds, assists, +/-
+
+### 5. RAG AI Assistant
 - Natural language questions ("Who are the top scorers?")
 - Context-aware answers powered by FAISS vector search
 - Chat history with example prompts
@@ -59,15 +70,15 @@ Then open http://localhost:8501
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│              Streamlit Frontend (UI)                    │
-│  ┌──────────┬──────────────┬────────────────────────┐   │
-│  │ SQL Tab  │ Charts Tab   │ AI Chatbot Tab         │   │
-│  └────┬─────┴──────┬───────┴───────────┬────────────┘   │
-├───────┴────────────┴───────────────────┴────────────────┤
-│              FastAPI Backend (API)                      │
-│  ┌─────────────┬────────────────┬──────────────────┐    │
-│  │ /sql/query  │ /shots/visualize│ /chat/ask       │    │
-│  └──────┬──────┴───────┬────────┴────────┬─────────┘    │
+│              Streamlit Frontend (UI)                              │
+│  ┌──────────┬──────────────┬──────────┬──────────┬────────────┐ │
+│  │ SQL Tab  │ Charts Tab   │ Teams Tab│ Games Tab│ Chatbot    │ │
+│  └────┬─────┴──────┬───────┴────┬─────┴────┬─────┴─────┬──────┘ │
+├───────┴────────────┴────────────┴──────────┴───────────┴────────┤
+│              FastAPI Backend (API)                               │
+│  ┌─────────────┬──────────────┬────────┬────────┬────────────┐  │
+│  │ /sql/query  │ /shots/      │ /teams │ /games │ /chat/ask  │  │
+│  └──────┬──────┴──────┬───────┴────┬───┴────┬───┴─────┬──────┘  │
 ├─────────┴──────────────┴─────────────────┴──────────────┤
 │              Data Layer                                 │
 │  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐   │
@@ -102,6 +113,8 @@ nba-ops-ai/
 │   ├── main.py               # FastAPI app
 │   ├── sql_engine.py         # SQL execution
 │   ├── shot_charts.py        # Shot chart logic
+│   ├── teams.py              # Team dashboard logic
+│   ├── games.py              # Game log explorer logic
 │   └── rag_chat.py           # RAG chatbot
 ├── data/
 │   └── nba_data.db           # SQLite database (generated)

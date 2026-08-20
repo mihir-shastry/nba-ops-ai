@@ -11,6 +11,10 @@ import time
 import functools
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Patch nba_api to use curl_cffi (bypasses Akamai TLS fingerprinting)
+import nba_api_compat  # noqa: F401
+
 from nba_api.stats.endpoints import (
     leagueleaders,
     leaguedashteamstats,
@@ -145,8 +149,28 @@ def init_database(conn):
             FOREIGN KEY (player_id) REFERENCES league_leaders(player_id)
         );
 
+        CREATE TABLE IF NOT EXISTS team_game_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            team_abbreviation TEXT,
+            game_id TEXT,
+            game_date TEXT,
+            matchup TEXT,
+            win TEXT,
+            points INTEGER,
+            rebounds INTEGER,
+            assists INTEGER,
+            steals INTEGER,
+            blocks INTEGER,
+            turnovers INTEGER,
+            field_goal_pct REAL,
+            three_point_pct REAL,
+            plus_minus REAL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_game_logs_player ON player_game_logs(player_id);
         CREATE INDEX IF NOT EXISTS idx_shots_player ON shot_chart(player_id);
+        CREATE INDEX IF NOT EXISTS idx_team_game_logs_team ON team_game_logs(team_abbreviation);
+        CREATE INDEX IF NOT EXISTS idx_team_game_logs_date ON team_game_logs(game_date);
     """)
     conn.commit()
 
@@ -213,6 +237,13 @@ def fetch_team_stats(conn):
     stats = _api_team_stats()
     df = stats.get_data_frames()[0]
     df.columns = [c.lower().replace(" ", "_") for c in df.columns]
+
+    # Build name-to-abbreviation mapping from nba_api static teams
+    name_to_abbr = {t["full_name"]: t["abbreviation"] for t in teams.get_teams()}
+    # Fallback for known API name mismatches
+    name_to_abbr["LA Clippers"] = "LAC"
+    name_to_abbr["LA Lakers"] = "LAL"
+    df["abbreviation"] = df["team_name"].map(name_to_abbr)
 
     available = df.columns.tolist()
     col_map = {}
@@ -296,6 +327,58 @@ def fetch_game_logs(conn, player_ids):
     print(f"  Inserted {len(df)} game logs for top {len(player_ids)} players")
 
 
+@retry_with_backoff()
+def _api_team_game_logs():
+    """Raw API call — fetches ALL team game logs for the season in one request."""
+    return leaguegamefinder.LeagueGameFinder(
+        player_or_team_abbreviation="T",
+        season_nullable="2025-26",
+        timeout=REQUEST_TIMEOUT
+    )
+
+
+def fetch_team_game_logs(conn):
+    """Fetch team-level game logs for the season."""
+    print("Fetching team game logs...")
+    finder = _api_team_game_logs()
+    df = finder.get_data_frames()[0]
+    print(f"  Fetched {len(df)} team game logs")
+
+    df.columns = [c.lower().replace(" ", "_") for c in df.columns]
+
+    rename_map = {
+        "team_abbreviation": "team_abbreviation",
+        "game_id": "game_id",
+        "game_date": "game_date",
+        "matchup": "matchup",
+        "wl": "win",
+        "pts": "points",
+        "reb": "rebounds",
+        "ast": "assists",
+        "stl": "steals",
+        "blk": "blocks",
+        "tov": "turnovers",
+        "fg_pct": "field_goal_pct",
+        "fg3_pct": "three_point_pct",
+        "plus_minus": "plus_minus"
+    }
+
+    available = df.columns.tolist()
+    actual_rename = {k: v for k, v in rename_map.items() if k in available}
+    df = df.rename(columns=actual_rename)
+
+    target_cols = [
+        "team_abbreviation", "game_id", "game_date", "matchup", "win",
+        "points", "rebounds", "assists", "steals", "blocks",
+        "turnovers", "field_goal_pct", "three_point_pct", "plus_minus"
+    ]
+    available_target = [c for c in target_cols if c in df.columns]
+    df = df[available_target]
+
+    df.to_sql("team_game_logs", conn, if_exists="replace", index=False)
+    print(f"  Inserted {len(df)} team game logs")
+
+
 # --- Threaded shot chart fetch ---
 
 @retry_with_backoff()
@@ -358,7 +441,7 @@ def fetch_shot_charts(conn, player_ids):
 
 
 # Cache check
-REQUIRED_TABLES = ["league_leaders", "team_stats", "player_game_logs", "shot_chart"]
+REQUIRED_TABLES = ["league_leaders", "team_stats", "player_game_logs", "shot_chart", "team_game_logs"]
 
 def is_database_populated():
     """Check if the database already has data in all required tables."""
@@ -397,6 +480,9 @@ def run_pipeline():
     time.sleep(DELAY_BETWEEN_CALLS)
 
     fetch_team_stats(conn)
+    time.sleep(DELAY_BETWEEN_CALLS)
+
+    fetch_team_game_logs(conn)
     time.sleep(DELAY_BETWEEN_CALLS)
 
     top_player_ids = leaders_df.head(PLAYER_LIMIT)["player_id"].tolist()

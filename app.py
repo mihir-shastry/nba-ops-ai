@@ -165,6 +165,8 @@ with st.sidebar:
     st.markdown("""
     - **SQL Analytics** — Query NBA data
     - **Shot Charts** — Visualize shot locations
+    - **Teams** — Standings and team overview
+    - **Games** — Game log explorer
     - **AI Assistant** — Ask questions in natural language
     """)
 
@@ -186,10 +188,10 @@ with st.sidebar:
 
 # Main content
 st.markdown('<div class="main-header">NBA Operations AI</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">SQL Analytics • Shot Charts • AI Assistant</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">SQL Analytics • Shot Charts • Teams • Games • AI Assistant</div>', unsafe_allow_html=True)
 
 # Tabs
-tab1, tab2, tab3 = st.tabs(["📊 SQL Analytics", "🎯 Shot Charts", "💬 AI Assistant"])
+tab1, tab2, tab4, tab5, tab3 = st.tabs(["📊 SQL Analytics", "🎯 Shot Charts", "🏆 Teams", "📅 Games", "💬 AI Assistant"])
 
 
 # Tab 1: SQL Analytics
@@ -407,7 +409,200 @@ with tab2:
         st.error(f"Could not load shot data: {e}")
 
 
-# Tab 3: AI Chatbot
+# Tab 3: Team Dashboard
+with tab4:
+    st.markdown("### 🏆 Team Dashboard")
+    st.markdown("*Conference standings — click a team to see their profile*")
+
+    try:
+        standings = httpx.get(f"{BACKEND_URL}/teams", timeout=10).json()
+
+        if standings.get("error"):
+            st.error(f"Error: {standings['error']}")
+        else:
+            # Check if we're viewing a team or the standings
+            if "selected_team" not in st.session_state:
+                st.session_state.selected_team = None
+
+            if st.session_state.selected_team:
+                # Team Overview
+                team_name = st.session_state.selected_team
+
+                if st.button("← Back to Standings"):
+                    st.session_state.selected_team = None
+                    st.rerun()
+
+                team_data = httpx.get(f"{BACKEND_URL}/teams/{team_name}", timeout=10).json()
+
+                if team_data.get("error"):
+                    st.error(f"Error: {team_data['error']}")
+                else:
+                    team = team_data["team"]
+                    core = team_data["core_stats"]
+                    advanced = team_data["advanced_metrics"]
+                    form = team_data["recent_form"]
+                    roster = team_data["roster"]
+
+                    # Header
+                    st.markdown(f"## {team['team_name']}")
+                    st.markdown(f"**Record:** {team['record']}")
+
+                    # Core stats row
+                    st.markdown("#### Core Stats")
+                    c1, c2, c3, c4, c5 = st.columns(5)
+                    c1.metric("PPG", f"{core['ppg']:.1f}")
+                    c2.metric("RPG", f"{core['rpg']:.1f}")
+                    c3.metric("APG", f"{core['apg']:.1f}")
+                    c4.metric("FG%", f"{core['fg_pct']:.1f}%")
+                    c5.metric("3PT%", f"{core['three_pct']:.1f}%")
+
+                    # Advanced metrics (expandable)
+                    with st.expander("📊 Advanced Metrics", expanded=False):
+                        if advanced:
+                            a1, a2, a3, a4, a5 = st.columns(5)
+                            a1.metric("Off Rating", f"{advanced.get('offensive_rating', 'N/A')}")
+                            a2.metric("Def Rating", f"{advanced.get('defensive_rating', 'N/A')}")
+                            a3.metric("Net Rating", f"{advanced.get('net_rating', 'N/A')}")
+                            a4.metric("Pace", f"{advanced.get('pace', 'N/A')}")
+                            a5.metric("TS%", f"{advanced.get('ts_pct', 'N/A')}%")
+                        else:
+                            st.info("Advanced metrics not available")
+
+                    # Recent form
+                    st.markdown("#### Recent Form (Last 10 Games)")
+                    if form:
+                        form_cols = st.columns(len(form))
+                        for i, game in enumerate(form):
+                            color = "#00d4aa" if game["result"] == "W" else "#ff4757"
+                            form_cols[i].markdown(
+                                f"<div style='text-align:center;padding:8px;border-radius:8px;"
+                                f"background:rgba(0,180,120,0.15) if game['result']=='W' else rgba(255,71,87,0.15);"
+                                f"border:2px solid {color}'>"
+                                f"<div style='font-size:1.2em;font-weight:700;color:{color}'>{game['result']}</div>"
+                                f"<div style='font-size:0.8em;color:#a0a0b0'>{game['matchup']}</div>"
+                                f"<div style='font-size:0.8em;color:#a0a0b0'>{game['points']} pts</div>"
+                                f"</div>",
+                                unsafe_allow_html=True
+                            )
+                    else:
+                        st.info("No recent games data")
+
+                    # Roster
+                    st.markdown("#### Top Players")
+                    if roster:
+                        roster_df = pd.DataFrame(roster)
+                        st.dataframe(roster_df, use_container_width=True, hide_index=True)
+
+            else:
+                # Conference Standings
+                col_east, col_west = st.columns(2)
+
+                with col_east:
+                    st.markdown("##### Eastern Conference")
+                    east_data = standings.get("east", [])
+                    if east_data:
+                        east_df = pd.DataFrame(east_data)
+                        east_df = east_df[["rank", "team_name", "wins", "losses", "win_pct", "gb"]]
+                        east_df.columns = ["#", "Team", "W", "L", "Win%", "GB"]
+                        st.dataframe(east_df, use_container_width=True, hide_index=True, height=560)
+
+                        # Team selector
+                        east_teams = [t["team_name"] for t in east_data]
+                        selected_east = st.selectbox("View team profile", ["Select a team..."] + east_teams, key="east_select")
+                        if selected_east != "Select a team...":
+                            abbrev = next(t["abbreviation"] for t in east_data if t["team_name"] == selected_east)
+                            st.session_state.selected_team = abbrev
+                            st.rerun()
+
+                with col_west:
+                    st.markdown("##### Western Conference")
+                    west_data = standings.get("west", [])
+                    if west_data:
+                        west_df = pd.DataFrame(west_data)
+                        west_df = west_df[["rank", "team_name", "wins", "losses", "win_pct", "gb"]]
+                        west_df.columns = ["#", "Team", "W", "L", "Win%", "GB"]
+                        st.dataframe(west_df, use_container_width=True, hide_index=True, height=560)
+
+                        # Team selector
+                        west_teams = [t["team_name"] for t in west_data]
+                        selected_west = st.selectbox("View team profile", ["Select a team..."] + west_teams, key="west_select")
+                        if selected_west != "Select a team...":
+                            abbrev = next(t["abbreviation"] for t in west_data if t["team_name"] == selected_west)
+                            st.session_state.selected_team = abbrev
+                            st.rerun()
+
+    except Exception as e:
+        st.error(f"Could not load team data: {e}")
+
+
+# Tab 4: Game Log Explorer
+with tab5:
+    st.markdown("### 📅 Game Log Explorer")
+    st.markdown("*Browse game results — filter by team and W/L*")
+
+    try:
+        # Get available teams for filter
+        teams_data = httpx.get(f"{BACKEND_URL}/games/teams", timeout=10).json()
+        available_teams = teams_data.get("teams", [])
+
+        col_team, col_result = st.columns(2)
+
+        with col_team:
+            selected_team = st.selectbox(
+                "Filter by team",
+                ["All Teams"] + available_teams,
+                key="game_team_filter"
+            )
+
+        with col_result:
+            selected_result = st.selectbox(
+                "Filter by result",
+                ["All", "Wins", "Losses"],
+                key="game_result_filter"
+            )
+
+        # Build query params
+        params = {}
+        if selected_team != "All Teams":
+            params["team"] = selected_team
+        if selected_result == "Wins":
+            params["result"] = "W"
+        elif selected_result == "Losses":
+            params["result"] = "L"
+
+        # Fetch games
+        games_response = httpx.get(f"{BACKEND_URL}/games", params=params, timeout=15).json()
+        games = games_response.get("games", [])
+        total = games_response.get("total_count", 0)
+
+        if games:
+            st.markdown(f"**{total} games** found")
+
+            # Build DataFrame for display
+            display_df = pd.DataFrame(games)
+            display_df = display_df[["date", "team", "matchup", "result", "points", "rebounds", "assists", "plus_minus"]]
+            display_df.columns = ["Date", "Team", "Matchup", "Result", "PTS", "REB", "AST", "+/-"]
+
+            # Color-code result column
+            def color_result(val):
+                if val == "W":
+                    return "color: #00d4aa; font-weight: bold"
+                elif val == "L":
+                    return "color: #ff4757; font-weight: bold"
+                return ""
+
+            styled_df = display_df.style.map(color_result, subset=["Result"])
+
+            st.dataframe(styled_df, use_container_width=True, height=600)
+
+        else:
+            st.info("No games match the selected filters.")
+
+    except Exception as e:
+        st.error(f"Could not load game data: {e}")
+
+
+# Tab 5: AI Chatbot
 with tab3:
     st.markdown("### AI Analytics Assistant")
     st.markdown("*Ask questions about NBA players and teams — powered by Text-to-SQL*")

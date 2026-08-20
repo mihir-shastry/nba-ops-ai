@@ -18,6 +18,8 @@ load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 from .sql_engine import execute_query, get_prebuilt_queries, get_table_info
 from .shot_charts import get_available_players, get_shot_data, get_zone_stats
 from .text_to_sql import answer_question
+from .teams import get_standings, get_team_overview
+from .games import get_game_logs, get_available_teams
 
 app = FastAPI(
     title="NBA Operations AI Assistant",
@@ -129,6 +131,41 @@ async def get_player_zones(player_name: str):
     """Get shot zone statistics for a player."""
     zones = get_zone_stats(player_name)
     return {"zones": zones}
+
+
+# Team Dashboard Endpoints
+@app.get("/teams")
+async def list_team_standings():
+    """Get conference standings for all teams."""
+    result = get_standings()
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=result["error"])
+    return result
+
+
+@app.get("/teams/{team_name}")
+async def get_team_detail(team_name: str):
+    """Get full team overview including stats, advanced metrics, form, and roster."""
+    result = get_team_overview(team_name)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+# Game Log Explorer Endpoints
+@app.get("/games/teams")
+async def list_game_teams():
+    """Get list of teams available in game logs."""
+    return {"teams": get_available_teams()}
+
+
+@app.get("/games")
+async def list_games(team: Optional[str] = None, result: Optional[str] = None):
+    """Get game logs with optional team and result filters."""
+    data = get_game_logs(team=team, result=result)
+    if "error" in data:
+        raise HTTPException(status_code=500, detail=data["error"])
+    return data
 
 
 # Text-to-SQL Chat Endpoints
