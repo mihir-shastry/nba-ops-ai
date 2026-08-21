@@ -20,6 +20,10 @@ from .shot_charts import get_available_players, get_shot_data, get_zone_stats
 from .text_to_sql import answer_question
 from .teams import get_standings, get_team_overview
 from .games import get_game_logs, get_available_teams
+from .ratings import get_player_ratings, get_player_rating_detail
+from .compare import get_player_stats, compare_players
+from .matches import get_match_list, get_match_detail
+from .lineups import get_team_lineups, get_league_best_lineups
 
 app = FastAPI(
     title="NBA Operations AI Assistant",
@@ -166,6 +170,86 @@ async def list_games(team: Optional[str] = None, result: Optional[str] = None):
     if "error" in data:
         raise HTTPException(status_code=500, detail=data["error"])
     return data
+
+
+
+# Player Rating Endpoints
+@app.get("/ratings")
+async def list_player_ratings(sort_by: str = "rating", limit: int = 50):
+    """Get player ratings sorted by the rating formula."""
+    result = get_player_ratings(sort_by=sort_by, limit=limit)
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=result["error"])
+    return result
+
+
+@app.get("/ratings/{player_name}")
+async def get_player_rating(player_name: str):
+    """Get detailed rating breakdown for a single player."""
+    result = get_player_rating_detail(player_name)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+
+# Player Comparison Endpoints
+@app.get("/compare/stats/{player_name}")
+async def get_comparison_stats(player_name: str):
+    """Get all stats for a player for comparison."""
+    result = get_player_stats(player_name)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@app.get("/compare/{player1}/{player2}")
+async def compare_two_players(player1: str, player2: str):
+    """Compare two players head-to-head."""
+    result = compare_players(player1, player2)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+
+# Match Dashboard Endpoints
+@app.get("/matches")
+async def list_matches(team: str = None, date_from: str = None, date_to: str = None):
+    """Get list of games with scores and basic stats."""
+    result = get_match_list(team=team, date_from=date_from, date_to=date_to)
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=result["error"])
+    return result
+
+
+@app.get("/matches/{game_id}")
+async def get_match(game_id: str):
+    """Get full match detail: box scores, quarter scoring, player stats."""
+    result = get_match_detail(game_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+
+# Lineup Optimizer Endpoints
+@app.get("/lineups/{team_name}")
+async def get_team_lineup_stats(team_name: str, min_minutes: float = 50):
+    """Get lineup stats for a team."""
+    result = get_team_lineups(team_name, min_minutes=min_minutes)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@app.get("/lineups/league/best")
+async def get_best_lineups(min_minutes: float = 100, limit: int = 20):
+    """Get the best lineups in the league by plus/minus."""
+    result = get_league_best_lineups(min_minutes=min_minutes, limit=limit)
+    if "error" in result:
+        raise HTTPException(status_code=500, detail=result["error"])
+    return result
 
 
 # Text-to-SQL Chat Endpoints

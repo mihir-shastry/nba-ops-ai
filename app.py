@@ -167,6 +167,9 @@ with st.sidebar:
     - **Shot Charts** — Visualize shot locations
     - **Teams** — Standings and team overview
     - **Games** — Game log explorer
+    - **Ratings** — Player ratings (0-100)
+    - **Compare** — Player vs player
+    - **Matches** — Game box scores
     - **AI Assistant** — Ask questions in natural language
     """)
 
@@ -188,10 +191,10 @@ with st.sidebar:
 
 # Main content
 st.markdown('<div class="main-header">NBA Operations AI</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">SQL Analytics • Shot Charts • Teams • Games • AI Assistant</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">SQL Analytics • Shot Charts • Teams • Games • Ratings • Compare • Matches • AI Assistant</div>', unsafe_allow_html=True)
 
 # Tabs
-tab1, tab2, tab4, tab5, tab3 = st.tabs(["📊 SQL Analytics", "🎯 Shot Charts", "🏆 Teams", "📅 Games", "💬 AI Assistant"])
+tab1, tab2, tab4, tab5, tab6, tab7, tab8, tab3 = st.tabs(["📊 SQL Analytics", "🎯 Shot Charts", "🏆 Teams", "📅 Games", "⭐ Ratings", "🔄 Compare", "🏟️ Matches", "💬 AI Assistant"])
 
 
 # Tab 1: SQL Analytics
@@ -538,30 +541,18 @@ with tab4:
 # Tab 4: Game Log Explorer
 with tab5:
     st.markdown("### 📅 Game Log Explorer")
-    st.markdown("*Browse game results — filter by team and W/L*")
+    st.markdown("*Browse game results — click a game to see the full box score*")
 
     try:
-        # Get available teams for filter
         teams_data = httpx.get(f"{BACKEND_URL}/games/teams", timeout=10).json()
         available_teams = teams_data.get("teams", [])
 
         col_team, col_result = st.columns(2)
-
         with col_team:
-            selected_team = st.selectbox(
-                "Filter by team",
-                ["All Teams"] + available_teams,
-                key="game_team_filter"
-            )
-
+            selected_team = st.selectbox("Filter by team", ["All Teams"] + available_teams, key="game_team_filter")
         with col_result:
-            selected_result = st.selectbox(
-                "Filter by result",
-                ["All", "Wins", "Losses"],
-                key="game_result_filter"
-            )
+            selected_result = st.selectbox("Filter by result", ["All", "Wins", "Losses"], key="game_result_filter")
 
-        # Build query params
         params = {}
         if selected_team != "All Teams":
             params["team"] = selected_team
@@ -570,39 +561,485 @@ with tab5:
         elif selected_result == "Losses":
             params["result"] = "L"
 
-        # Fetch games
-        games_response = httpx.get(f"{BACKEND_URL}/games", params=params, timeout=15).json()
-        games = games_response.get("games", [])
-        total = games_response.get("total_count", 0)
+        games_response = httpx.get(f"{BACKEND_URL}/matches", params=params, timeout=15).json()
+        matches = games_response.get("matches", [])
 
-        if games:
-            st.markdown(f"**{total} games** found")
+        if matches:
+            st.markdown(f"**{games_response.get('total_count', 0)} games** found")
 
-            # Build DataFrame for display
-            display_df = pd.DataFrame(games)
-            display_df = display_df[["date", "team", "matchup", "result", "points", "rebounds", "assists", "plus_minus"]]
-            display_df.columns = ["Date", "Team", "Matchup", "Result", "PTS", "REB", "AST", "+/-"]
+            # Show game selector
+            game_options = [f"{m['date']} — {m['team']} {m['matchup']} ({m['result']} {m['points']})" for m in matches[:50]]
+            game_map = {opt: m for opt, m in zip(game_options, matches[:50])}
 
-            # Color-code result column
-            def color_result(val):
-                if val == "W":
-                    return "color: #00d4aa; font-weight: bold"
-                elif val == "L":
-                    return "color: #ff4757; font-weight: bold"
-                return ""
+            selected_game = st.selectbox("Select a game to view details", game_options, key="game_select")
 
-            styled_df = display_df.style.map(color_result, subset=["Result"])
+            if selected_game:
+                game = game_map[selected_game]
+                detail = httpx.get(f"{BACKEND_URL}/matches/{game['game_id']}", timeout=15).json()
 
-            st.dataframe(styled_df, use_container_width=True, height=600)
+                if "error" not in detail:
+                    g = detail["game"]
+                    home = detail["home_team"]
+                    away = detail["away_team"]
+                    player_stats = detail["player_stats"]
 
+                    # Scoreboard
+                    sc1, sc_sep, sc2 = st.columns([2, 1, 2])
+                    with sc1:
+                        home_color = "#00d4aa" if home["result"] == "W" else "#ff4757"
+                        st.markdown(f"<div style='text-align:center'><div style='font-size:2em;font-weight:800;color:{home_color}'>{home['points']}</div><div style='font-size:1.2em;font-weight:600'>{home['abbreviation']}</div></div>", unsafe_allow_html=True)
+                    with sc_sep:
+                        st.markdown("<div style='text-align:center;font-size:1.5em;color:#a0a0b0;padding-top:20px'>vs</div>", unsafe_allow_html=True)
+                    with sc2:
+                        away_color = "#00d4aa" if away["result"] == "W" else "#ff4757"
+                        st.markdown(f"<div style='text-align:center'><div style='font-size:2em;font-weight:800;color:{away_color}'>{away['points']}</div><div style='font-size:1.2em;font-weight:600'>{away['abbreviation']}</div></div>", unsafe_allow_html=True)
+
+                    st.markdown(f"<div style='text-align:center;color:#a0a0b0'>{g['date']}</div>", unsafe_allow_html=True)
+
+                    # Team stats comparison
+                    st.markdown("#### Team Stats")
+                    tc1, tc2, tc3, tc4 = st.columns(4)
+                    with tc1:
+                        st.metric(f"{home['abbreviation']} REB", home["rebounds"])
+                        st.metric(f"{away['abbreviation']} REB", away["rebounds"])
+                    with tc2:
+                        st.metric(f"{home['abbreviation']} AST", home["assists"])
+                        st.metric(f"{away['abbreviation']} AST", away["assists"])
+                    with tc3:
+                        st.metric(f"{home['abbreviation']} FG%", f"{home['fg_pct']}%")
+                        st.metric(f"{away['abbreviation']} FG%", f"{away['fg_pct']}%")
+                    with tc4:
+                        st.metric(f"{home['abbreviation']} +/-", f"{home['plus_minus']:+.0f}")
+                        st.metric(f"{away['abbreviation']} +/-", f"{away['plus_minus']:+.0f}")
+
+                    # Box scores
+                    bc1, bc2 = st.columns(2)
+                    with bc1:
+                        st.markdown(f"#### {home['abbreviation']} Box Score")
+                        if player_stats["home"]:
+                            home_df = pd.DataFrame(player_stats["home"])
+                            home_df = home_df[["player_name", "minutes", "points", "rebounds", "assists", "steals", "blocks", "turnovers", "rating"]]
+                            home_df.columns = ["Player", "MIN", "PTS", "REB", "AST", "STL", "BLK", "TOV", "Rating"]
+                            st.dataframe(home_df, use_container_width=True, hide_index=True)
+                    with bc2:
+                        st.markdown(f"#### {away['abbreviation']} Box Score")
+                        if player_stats["away"]:
+                            away_df = pd.DataFrame(player_stats["away"])
+                            away_df = away_df[["player_name", "minutes", "points", "rebounds", "assists", "steals", "blocks", "turnovers", "rating"]]
+                            away_df.columns = ["Player", "MIN", "PTS", "REB", "AST", "STL", "BLK", "TOV", "Rating"]
+                            st.dataframe(away_df, use_container_width=True, hide_index=True)
+                else:
+                    st.warning(f"Could not load game details: {detail['error']}")
         else:
-            st.info("No games match the selected filters.")
+            st.info("No games found.")
 
     except Exception as e:
-        st.error(f"Could not load game data: {e}")
+        st.error(f"Could not load games: {e}")
+
+# Tab 5: Player Ratings
+with tab6:
+    st.markdown("### ⭐ Player Ratings")
+    st.markdown("*Context-aware ratings (0-100) based on stats, efficiency, and consistency*")
+
+    try:
+        # Sort options
+        sort_col, limit_col = st.columns(2)
+        with sort_col:
+            sort_by = st.selectbox("Sort by", ["rating", "pts", "reb", "ast"], format_func=lambda x: {"rating": "Overall Rating", "pts": "Points", "reb": "Rebounds", "ast": "Assists"}[x], key="rating_sort")
+        with limit_col:
+            limit = st.slider("Show top N", 10, 100, 50, key="rating_limit")
+
+        ratings_data = httpx.get(f"{BACKEND_URL}/ratings?sort_by={sort_by}&limit={limit}", timeout=15).json()
+        players = ratings_data.get("players", [])
+
+        if players:
+            # Display as table
+            display_df = pd.DataFrame(players)
+            display_df = display_df[["player_name", "team_abbreviation", "rating", "points_per_game", "rebounds_per_game", "assists_per_game", "steals_per_game", "blocks_per_game", "field_goal_pct", "three_point_pct"]]
+            display_df.columns = ["Player", "Team", "Rating", "PPG", "RPG", "APG", "SPG", "BPG", "FG%", "3PT%"]
+
+            # Color-code rating
+            def color_rating(val):
+                if val >= 90:
+                    return "color: #f7c948; font-weight: bold"
+                elif val >= 80:
+                    return "color: #00d4aa; font-weight: bold"
+                elif val >= 70:
+                    return "color: #ffffff"
+                return "color: #a0a0b0"
+
+            styled_df = display_df.style.map(color_rating, subset=["Rating"])
+            st.dataframe(styled_df, use_container_width=True, height=600)
+
+            # Player detail
+            st.markdown("---")
+            player_names = [p["player_name"] for p in players]
+            selected = st.selectbox("View player detail", ["Select a player..."] + player_names, key="rating_player_select")
+
+            if selected != "Select a player...":
+                detail = httpx.get(f"{BACKEND_URL}/ratings/{selected}", timeout=15).json()
+
+                if "error" not in detail:
+                    player = detail["player"]
+                    rating = detail["rating"]
+                    breakdown = detail["breakdown"]
+                    game_log = detail["game_log"]
+
+                    col_name, col_rating = st.columns([3, 1])
+                    with col_name:
+                        st.markdown(f"## {player['player_name']}")
+                        st.markdown(f"**{player['team_abbreviation']}** | {player['games_played']} games | {player['minutes_per_game']:.1f} MPG")
+                    with col_rating:
+                        st.markdown(f"<div style='text-align:center;font-size:4em;font-weight:800;color:#f7c948'>{rating}</div>", unsafe_allow_html=True)
+                        st.markdown("<div style='text-align:center;color:#a0a0b0'>RATING</div>", unsafe_allow_html=True)
+
+                    # Radar chart
+                    categories = ["Scoring", "Rebounding", "Playmaking", "Defense", "Efficiency"]
+                    values = [breakdown["scoring"], breakdown["rebounding"], breakdown["playmaking"], breakdown["defense"], breakdown["efficiency"]]
+
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatterpolar(
+                        r=values + [values[0]],
+                        theta=categories + [categories[0]],
+                        fill="toself",
+                        fillcolor="rgba(247, 201, 72, 0.2)",
+                        line=dict(color="#f7c948", width=2),
+                        name=player["player_name"]
+                    ))
+                    fig.update_layout(
+                        polar=dict(
+                            radialaxis=dict(visible=True, range=[0, 100], gridcolor="rgba(255,255,255,0.1)"),
+                            angularaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+                            bgcolor="#1a1a3e"
+                        ),
+                        showlegend=False,
+                        paper_bgcolor="#1a1a3e",
+                        font=dict(color="white"),
+                        margin=dict(l=60, r=60, t=30, b=30),
+                        height=400
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+                    # Game log trend
+                    if game_log:
+                        st.markdown("#### Rating Trend")
+                        trend_df = pd.DataFrame(game_log)
+                        fig_trend = go.Figure()
+                        fig_trend.add_trace(go.Scatter(
+                            x=trend_df["date"], y=trend_df["rating"],
+                            mode="lines+markers",
+                            line=dict(color="#f7c948", width=2),
+                            marker=dict(size=4),
+                            name="Rating"
+                        ))
+                        fig_trend.update_layout(
+                            xaxis_title="Game", yaxis_title="Rating",
+                            yaxis=dict(range=[0, 100]),
+                            plot_bgcolor="#1a1a3e", paper_bgcolor="#1a1a3e",
+                            font=dict(color="white"),
+                            margin=dict(l=20, r=20, t=10, b=40),
+                            height=300
+                        )
+                        st.plotly_chart(fig_trend, use_container_width=True)
+
+                    # Season stats
+                    st.markdown("#### Season Averages")
+                    c1, c2, c3, c4, c5 = st.columns(5)
+                    c1.metric("PPG", f"{player['points_per_game']:.1f}")
+                    c2.metric("RPG", f"{player['rebounds_per_game']:.1f}")
+                    c3.metric("APG", f"{player['assists_per_game']:.1f}")
+                    c4.metric("FG%", f"{player['field_goal_pct']:.1f}%")
+                    c5.metric("3PT%", f"{player['three_point_pct']:.1f}%")
+        else:
+            st.info("No ratings data available.")
+
+    except Exception as e:
+        st.error(f"Could not load ratings: {e}")
 
 
-# Tab 5: AI Chatbot
+# Tab 6: Player Comparison
+with tab7:
+    st.markdown("### 🔄 Player Comparison")
+    st.markdown("*Compare two players head-to-head*")
+
+    try:
+        # Get all player names for dropdowns
+        ratings_data = httpx.get(f"{BACKEND_URL}/ratings?limit=200", timeout=15).json()
+        all_players = [p["player_name"] for p in ratings_data.get("players", [])]
+
+        col1, col2 = st.columns(2)
+        with col1:
+            player1 = st.selectbox("Player 1", all_players, key="compare_p1")
+        with col2:
+            player2 = st.selectbox("Player 2", all_players, index=min(1, len(all_players)-1), key="compare_p2")
+
+        if player1 and player2 and player1 != player2:
+            comparison = httpx.get(f"{BACKEND_URL}/compare/{player1}/{player2}", timeout=15).json()
+
+            if "error" not in comparison:
+                p1 = comparison["player1"]["player"]
+                p2 = comparison["player2"]["player"]
+                r1 = comparison["player1"]["rating"]
+                r2 = comparison["player2"]["rating"]
+                rv1 = comparison["player1"]["radar_values"]
+                rv2 = comparison["player2"]["radar_values"]
+                stat_table = comparison["stat_table"]
+                verdicts = comparison["verdicts"]
+
+                # Player headers
+                hdr1, hdr2 = st.columns(2)
+                with hdr1:
+                    st.markdown(f"<div style='text-align:center;font-size:1.8em;font-weight:800;color:#f7c948'>{r1}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='text-align:center;font-size:1.2em;font-weight:600'>{p1['player_name']}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='text-align:center;color:#a0a0b0'>{p1['team_abbreviation']} | {p1['points_per_game']:.1f} PPG</div>", unsafe_allow_html=True)
+                with hdr2:
+                    st.markdown(f"<div style='text-align:center;font-size:1.8em;font-weight:800;color:#ff6b35'>{r2}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='text-align:center;font-size:1.2em;font-weight:600'>{p2['player_name']}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='text-align:center;color:#a0a0b0'>{p2['team_abbreviation']} | {p2['points_per_game']:.1f} PPG</div>", unsafe_allow_html=True)
+
+                # Overlapping radar chart
+                categories = ["Scoring", "Rebounding", "Playmaking", "Defense", "Efficiency"]
+                vals1 = [rv1[c] for c in categories]
+                vals2 = [rv2[c] for c in categories]
+
+                fig = go.Figure()
+                fig.add_trace(go.Scatterpolar(
+                    r=vals1 + [vals1[0]], theta=categories + [categories[0]],
+                    fill="toself", fillcolor="rgba(247, 201, 72, 0.15)",
+                    line=dict(color="#f7c948", width=2), name=p1["player_name"]
+                ))
+                fig.add_trace(go.Scatterpolar(
+                    r=vals2 + [vals2[0]], theta=categories + [categories[0]],
+                    fill="toself", fillcolor="rgba(255, 107, 53, 0.15)",
+                    line=dict(color="#ff6b35", width=2), name=p2["player_name"]
+                ))
+                fig.update_layout(
+                    polar=dict(
+                        radialaxis=dict(visible=True, range=[0, 100], gridcolor="rgba(255,255,255,0.1)"),
+                        angularaxis=dict(gridcolor="rgba(255,255,255,0.1)"),
+                        bgcolor="#1a1a3e"
+                    ),
+                    showlegend=True,
+                    legend=dict(bgcolor="rgba(0,0,0,0.3)", bordercolor="rgba(255,255,255,0.1)"),
+                    paper_bgcolor="#1a1a3e", font=dict(color="white"),
+                    margin=dict(l=60, r=60, t=30, b=30), height=450
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+                # Verdict cards
+                st.markdown("#### Verdicts")
+                v_cols = st.columns(len(verdicts))
+                for i, v in enumerate(verdicts):
+                    if v["winner"] == "Even":
+                        color = "#a0a0b0"
+                        text = "Even"
+                    elif v["winner"] == p1["player_name"]:
+                        color = "#f7c948"
+                        text = f"{v['winner']} {v['margin']}"
+                    else:
+                        color = "#ff6b35"
+                        text = f"{v['winner']} {v['margin']}"
+                    v_cols[i].markdown(
+                        f"<div style='text-align:center;padding:12px;border-radius:8px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1)'>"
+                        f"<div style='font-size:0.8em;color:#a0a0b0;margin-bottom:4px'>{v['category']}</div>"
+                        f"<div style='font-size:1.1em;font-weight:700;color:{color}'>{text}</div>"
+                        f"</div>", unsafe_allow_html=True
+                    )
+
+                # Stat comparison table
+                st.markdown("#### Head-to-Head Stats")
+                stat_df = pd.DataFrame(stat_table)
+                stat_df = stat_df.rename(columns={"stat": "Stat", "player1_value": p1["player_name"], "player2_value": p2["player_name"]})
+                st.dataframe(stat_df, use_container_width=True, hide_index=True)
+
+            else:
+                st.error(f"Error: {comparison['error']}")
+
+    except Exception as e:
+        st.error(f"Could not load comparison: {e}")
+
+
+# Tab 7: Match Dashboard
+with tab8:
+    st.markdown("### 🏟️ Match Dashboard")
+    st.markdown("*Game box scores with player ratings*")
+
+    try:
+        # Team filter
+        teams_data = httpx.get(f"{BACKEND_URL}/games/teams", timeout=10).json()
+        available_teams = teams_data.get("teams", [])
+
+        col_team, col_limit = st.columns(2)
+        with col_team:
+            match_team = st.selectbox("Filter by team", ["All Teams"] + available_teams, key="match_team_filter")
+        with col_limit:
+            match_limit = st.slider("Show games", 10, 100, 30, key="match_limit")
+
+        params = {}
+        if match_team != "All Teams":
+            params["team"] = match_team
+
+        matches_response = httpx.get(f"{BACKEND_URL}/matches", params=params, timeout=15).json()
+        matches = matches_response.get("matches", [])
+
+        if matches:
+            st.markdown(f"**{matches_response.get('total_count', 0)} games** found")
+
+            # Display matches as clickable cards
+            for i, match in enumerate(matches[:match_limit]):
+                result_color = "#00d4aa" if match["result"] == "W" else "#ff4757"
+                pm_color = "#00d4aa" if match["plus_minus"] >= 0 else "#ff4757"
+
+                col_date, col_matchup, col_score, col_stats, col_detail = st.columns([1.5, 2, 1.5, 3, 1])
+
+                with col_date:
+                    st.markdown(f"<div style='color:#a0a0b0;font-size:0.9em'>{match['date']}</div>", unsafe_allow_html=True)
+                with col_matchup:
+                    st.markdown(f"<div style='font-weight:600'>{match['team']} {match['matchup']}</div>", unsafe_allow_html=True)
+                with col_score:
+                    st.markdown(f"<div style='color:{result_color};font-weight:700;font-size:1.2em'>{match['result']} {match['points']}</div>", unsafe_allow_html=True)
+                with col_stats:
+                    st.markdown(f"<div style='color:#a0a0b0'>PTS: {match['points']} | REB: {match['rebounds']} | AST: {match['assists']} | +/-: <span style='color:{pm_color}'>{match['plus_minus']:+.0f}</span></div>", unsafe_allow_html=True)
+                with col_detail:
+                    if st.button("View", key=f"match_{i}"):
+                        st.session_state.selected_match = match["game_id"]
+                        st.rerun()
+
+            # Match detail view
+            if "selected_match" in st.session_state and st.session_state.selected_match:
+                game_id = st.session_state.selected_match
+
+                if st.button("← Back to game list"):
+                    st.session_state.selected_match = None
+                    st.rerun()
+
+                detail = httpx.get(f"{BACKEND_URL}/matches/{game_id}", timeout=15).json()
+
+                if "error" not in detail:
+                    game = detail["game"]
+                    home = detail["home_team"]
+                    away = detail["away_team"]
+                    player_stats = detail["player_stats"]
+
+                    # Scoreboard
+                    st.markdown("---")
+                    sc1, sc_sep, sc2 = st.columns([2, 1, 2])
+                    with sc1:
+                        home_color = "#00d4aa" if home["result"] == "W" else "#ff4757"
+                        st.markdown(f"<div style='text-align:center'><div style='font-size:2em;font-weight:800;color:{home_color}'>{home['points']}</div><div style='font-size:1.2em;font-weight:600'>{home['abbreviation']}</div></div>", unsafe_allow_html=True)
+                    with sc_sep:
+                        st.markdown("<div style='text-align:center;font-size:1.5em;color:#a0a0b0;padding-top:20px'>vs</div>", unsafe_allow_html=True)
+                    with sc2:
+                        away_color = "#00d4aa" if away["result"] == "W" else "#ff4757"
+                        st.markdown(f"<div style='text-align:center'><div style='font-size:2em;font-weight:800;color:{away_color}'>{away['points']}</div><div style='font-size:1.2em;font-weight:600'>{away['abbreviation']}</div></div>", unsafe_allow_html=True)
+
+                    st.markdown(f"<div style='text-align:center;color:#a0a0b0'>{game['date']}</div>", unsafe_allow_html=True)
+
+                    # Team stat comparison
+                    st.markdown("#### Team Stats")
+                    tc1, tc2, tc3 = st.columns(3)
+                    with tc1:
+                        st.metric(f"{home['abbreviation']} REB", home['rebounds'])
+                        st.metric(f"{away['abbreviation']} REB", away['rebounds'])
+                    with tc2:
+                        st.metric(f"{home['abbreviation']} AST", home['assists'])
+                        st.metric(f"{away['abbreviation']} AST", away['assists'])
+                    with tc3:
+                        st.metric(f"{home['abbreviation']} FG%", f"{home['fg_pct']}%")
+                        st.metric(f"{away['abbreviation']} FG%", f"{away['fg_pct']}%")
+
+                    # Box scores
+                    bc1, bc2 = st.columns(2)
+                    with bc1:
+                        st.markdown(f"#### {home['abbreviation']} Box Score")
+                        if player_stats["home"]:
+                            home_df = pd.DataFrame(player_stats["home"])
+                            home_df = home_df[["player_name", "minutes", "points", "rebounds", "assists", "steals", "blocks", "turnovers", "rating"]]
+                            home_df.columns = ["Player", "MIN", "PTS", "REB", "AST", "STL", "BLK", "TOV", "Rating"]
+                            st.dataframe(home_df, use_container_width=True, hide_index=True)
+                    with bc2:
+                        st.markdown(f"#### {away['abbreviation']} Box Score")
+                        if player_stats["away"]:
+                            away_df = pd.DataFrame(player_stats["away"])
+                            away_df = away_df[["player_name", "minutes", "points", "rebounds", "assists", "steals", "blocks", "turnovers", "rating"]]
+                            away_df.columns = ["Player", "MIN", "PTS", "REB", "AST", "STL", "BLK", "TOV", "Rating"]
+                            st.dataframe(away_df, use_container_width=True, hide_index=True)
+
+        else:
+            st.info("No games found.")
+
+    except Exception as e:
+        st.error(f"Could not load matches: {e}")
+
+
+# Tab 8: Lineup Optimizer
+with tab8:
+    st.markdown("### 🔧 Lineup Optimizer")
+    st.markdown("*5-man unit stats — find the best combinations*")
+
+    try:
+        teams_data = httpx.get(f"{BACKEND_URL}/games/teams", timeout=10).json()
+        available_teams = teams_data.get("teams", [])
+
+        view_mode = st.radio("View", ["League Best", "Team Lineups"], horizontal=True, key="lineup_view")
+
+        if view_mode == "League Best":
+            min_min, limit = st.columns(2)
+            with min_min:
+                min_minutes = st.slider("Min minutes together", 50, 500, 100, key="league_min_min")
+            with limit:
+                limit_val = st.slider("Show top N", 5, 50, 20, key="league_limit")
+
+            best = httpx.get(f"{BACKEND_URL}/lineups/league/best?min_minutes={min_minutes}&limit={limit_val}", timeout=15).json()
+            lineups = best.get("lineups", [])
+
+            if lineups:
+                st.markdown(f"**{best.get('total_count', 0)} qualifying lineups**")
+                for i, lu in enumerate(lineups):
+                    pm = lu["plus_minus"]
+                    expander_title = f"#{i+1} {lu['team']} — {lu['lineup'][:60]}... ({pm:+.1f})"
+                    with st.expander(expander_title):
+                        c1, c2, c3, c4, c5 = st.columns(5)
+                        c1.metric("Games", lu["games"])
+                        c2.metric("Record", f"{lu['wins']}-{lu['losses']}")
+                        c3.metric("Win%", f"{lu['win_pct']:.1%}")
+                        c4.metric("Minutes", f"{lu['minutes']:.0f}")
+                        c5.metric("+/-", f"{pm:+.1f}")
+                        c6, c7, c8 = st.columns(3)
+                        c6.metric("PPG", f"{lu['points']:.1f}")
+                        c7.metric("RPG", f"{lu['rebounds']:.1f}")
+                        c8.metric("APG", f"{lu['assists']:.1f}")
+            else:
+                st.info("No lineups found with those filters.")
+
+        else:
+            selected_team = st.selectbox("Select team", ["Select..."] + available_teams, key="lineup_team_select")
+            if selected_team != "Select...":
+                team_lineups = httpx.get(f"{BACKEND_URL}/lineups/{selected_team}?min_minutes=50", timeout=15).json()
+                lineups = team_lineups.get("lineups", [])
+                if lineups:
+                    st.markdown(f"**{team_lineups.get('total_lineups', 0)} qualifying lineups for {selected_team}**")
+                    for i, lu in enumerate(lineups):
+                        pm = lu["plus_minus"]
+                        expander_title = f"#{i+1} {lu['lineup'][:70]} ({pm:+.1f})"
+                        with st.expander(expander_title):
+                            c1, c2, c3, c4, c5 = st.columns(5)
+                            c1.metric("Games", lu["games"])
+                            c2.metric("Record", f"{lu['wins']}-{lu['losses']}")
+                            c3.metric("Win%", f"{lu['win_pct']:.1%}")
+                            c4.metric("Minutes", f"{lu['minutes']:.0f}")
+                            c5.metric("+/-", f"{pm:+.1f}")
+                            c6, c7, c8 = st.columns(3)
+                            c6.metric("PPG", f"{lu['points']:.1f}")
+                            c7.metric("RPG", f"{lu['rebounds']:.1f}")
+                            c8.metric("APG", f"{lu['assists']:.1f}")
+                else:
+                    st.info(f"No qualifying lineups found for {selected_team}.")
+
+    except Exception as e:
+        st.error(f"Could not load lineups: {e}")
+
+# Tab 11: AI Chatbot
 with tab3:
     st.markdown("### AI Analytics Assistant")
     st.markdown("*Ask questions about NBA players and teams — powered by Text-to-SQL*")

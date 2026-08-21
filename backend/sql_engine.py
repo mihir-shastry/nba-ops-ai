@@ -117,9 +117,21 @@ def execute_query(query: str) -> dict:
     conn = get_db()
     try:
         df = pd.read_sql_query(query, conn)
+        # Replace NaN/inf with None for JSON serialization
+        import math
+        df = df.where(df.notna(), None)
+        rows = []
+        for _, row in df.iterrows():
+            clean_row = []
+            for val in row:
+                if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
+                    clean_row.append(None)
+                else:
+                    clean_row.append(val)
+            rows.append(clean_row)
         return {
             "columns": df.columns.tolist(),
-            "rows": df.values.tolist(),
+            "rows": rows,
             "row_count": len(df),
             "error": None
         }

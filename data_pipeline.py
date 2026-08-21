@@ -19,7 +19,8 @@ from nba_api.stats.endpoints import (
     leagueleaders,
     leaguedashteamstats,
     leaguegamefinder,
-    shotchartdetail
+    shotchartdetail,
+    leaguedashlineups
 )
 from nba_api.stats.static import teams
 
@@ -171,6 +172,29 @@ def init_database(conn):
         CREATE INDEX IF NOT EXISTS idx_shots_player ON shot_chart(player_id);
         CREATE INDEX IF NOT EXISTS idx_team_game_logs_team ON team_game_logs(team_abbreviation);
         CREATE INDEX IF NOT EXISTS idx_team_game_logs_date ON team_game_logs(game_date);
+
+        CREATE TABLE IF NOT EXISTS lineup_stats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            team_id INTEGER,
+            team_abbreviation TEXT,
+            lineup TEXT,
+            games INTEGER,
+            wins INTEGER,
+            losses INTEGER,
+            win_pct REAL,
+            minutes REAL,
+            points REAL,
+            rebounds REAL,
+            assists REAL,
+            steals REAL,
+            blocks REAL,
+            turnovers REAL,
+            fg_pct REAL,
+            three_pct REAL,
+            plus_minus REAL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_lineup_team ON lineup_stats(team_abbreviation);
     """)
     conn.commit()
 
@@ -441,7 +465,7 @@ def fetch_shot_charts(conn, player_ids):
 
 
 # Cache check
-REQUIRED_TABLES = ["league_leaders", "team_stats", "player_game_logs", "shot_chart", "team_game_logs"]
+REQUIRED_TABLES = ["league_leaders", "team_stats", "player_game_logs", "shot_chart", "team_game_logs", "lineup_stats"]
 
 def is_database_populated():
     """Check if the database already has data in all required tables."""
@@ -459,6 +483,49 @@ def is_database_populated():
     except Exception:
         return False
 
+
+
+
+@retry_with_backoff()
+def _api_lineup_stats():
+    """Raw API call for lineup stats."""
+    return leaguedashlineups.LeagueDashLineups(
+        season="2025-26",
+        timeout=REQUEST_TIMEOUT
+    )
+
+
+def fetch_lineup_stats(conn):
+    """Fetch lineup statistics."""
+    print("Fetching lineup stats...")
+    result = _api_lineup_stats()
+    df = result.get_data_frames()[0]
+    print(f"  Fetched {len(df)} lineups")
+
+    df.columns = [c.lower().replace(" ", "_") for c in df.columns]
+
+    # Filter to 5-man lineups only (GROUP_SET == 'Lineups')
+    df = df[df["group_set"] == "Lineups"]
+    df = df[df["gp"] >= 5]  # At least 5 games together
+
+    name_to_abbr = {t["full_name"]: t["abbreviation"] for t in teams.get_teams()}
+    name_to_abbr["LA Clippers"] = "LAC"
+    name_to_abbr["LA Lakers"] = "LAL"
+
+    col_map = {
+        "team_id": "team_id", "team_abbreviation": "team_abbreviation",
+        "group_name": "lineup", "gp": "games", "w": "wins", "l": "losses",
+        "w_pct": "win_pct", "min": "minutes", "pts": "points",
+        "reb": "rebounds", "ast": "assists", "stl": "steals",
+        "blk": "blocks", "tov": "turnovers", "fg_pct": "fg_pct",
+        "fg3_pct": "three_pct", "plus_minus": "plus_minus"
+    }
+    available = df.columns.tolist()
+    actual_map = {k: v for k, v in col_map.items() if k in available}
+    result_df = df[list(actual_map.keys())].rename(columns=actual_map)
+
+    result_df.to_sql("lineup_stats", conn, if_exists="replace", index=False)
+    print(f"  Inserted {len(result_df)} lineups")
 
 # Main pipeline
 def run_pipeline():
@@ -483,6 +550,9 @@ def run_pipeline():
     time.sleep(DELAY_BETWEEN_CALLS)
 
     fetch_team_game_logs(conn)
+    time.sleep(DELAY_BETWEEN_CALLS)
+
+    fetch_lineup_stats(conn)
     time.sleep(DELAY_BETWEEN_CALLS)
 
     top_player_ids = leaders_df.head(PLAYER_LIMIT)["player_id"].tolist()
