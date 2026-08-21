@@ -32,14 +32,14 @@ export default function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-64 min-h-screen bg-court-card border-r border-court-border p-4 flex flex-col">
+    <aside className="w-56 min-h-screen bg-court-card border-r border-court-border p-4 flex flex-col">
       <div className="mb-8">
-        <h1 className="text-xl font-extrabold bg-gradient-to-r from-court-orange to-court-gold bg-clip-text text-transparent">
-          🏀 NBA Ops AI
+        <h1 className="text-lg font-extrabold tracking-tight">
+          NBA Ops AI
         </h1>
       </div>
 
-      <nav className="flex-1 space-y-1">
+      <nav className="flex-1 space-y-0.5">
         {navItems.map((item) => {
           const isActive =
             item.href === "/"
@@ -51,20 +51,20 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
                 isActive
-                  ? "bg-gradient-to-r from-court-orange to-court-gold text-court-bg"
+                  ? "bg-white text-black font-semibold"
                   : "text-court-muted hover:text-white hover:bg-white/5"
               }`}
             >
-              <Icon size={18} />
+              <Icon size={16} />
               {item.label}
             </Link>
           );
         })}
       </nav>
 
-      <div className="mt-8 text-xs text-court-muted">
+      <div className="mt-8 text-[10px] text-court-muted leading-relaxed">
         <p>Python • FastAPI • Next.js</p>
         <p>SQLite • Gemini AI • Recharts</p>
       </div>

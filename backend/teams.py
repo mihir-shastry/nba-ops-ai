@@ -140,10 +140,10 @@ def get_team_overview(team_name: str) -> dict:
         for r in roster_result["rows"]:
             roster.append({
                 "player_name": r[0],
-                "ppg": r[1],
-                "rpg": r[2],
-                "apg": r[3],
-                "fg_pct": round(r[4] * 100, 1) if r[4] and r[4] < 1 else r[4],
+                "points_per_game": r[1],
+                "rebounds_per_game": r[2],
+                "assists_per_game": r[3],
+                "field_goal_pct": round(r[4] * 100, 1) if r[4] and r[4] < 1 else r[4],
                 "games_played": r[5]
             })
 

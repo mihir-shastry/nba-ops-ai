@@ -30,7 +30,7 @@ export default function GamesPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-extrabold mb-1">📅 Game Log Explorer</h1>
+      <h1 className="text-3xl font-extrabold mb-1">Game Log Explorer</h1>
       <p className="text-court-muted mb-6">
         Browse game results — click a game to see the full box score
       </p>

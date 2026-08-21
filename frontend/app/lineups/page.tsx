@@ -39,7 +39,7 @@ export default function LineupsPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-extrabold mb-1">🔧 Lineup Optimizer</h1>
+      <h1 className="text-3xl font-extrabold mb-1">Lineup Optimizer</h1>
       <p className="text-court-muted mb-6">
         5-man unit stats — find the best combinations
       </p>
@@ -50,7 +50,7 @@ export default function LineupsPage() {
           onClick={() => setView("league")}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
             view === "league"
-              ? "bg-gradient-to-r from-court-orange to-court-gold text-court-bg"
+              ? "bg-white text-black font-semibold"
               : "bg-court-card border border-court-border text-court-muted hover:text-white"
           }`}
         >
@@ -60,7 +60,7 @@ export default function LineupsPage() {
           onClick={() => setView("team")}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
             view === "team"
-              ? "bg-gradient-to-r from-court-orange to-court-gold text-court-bg"
+              ? "bg-white text-black font-semibold"
               : "bg-court-card border border-court-border text-court-muted hover:text-white"
           }`}
         >

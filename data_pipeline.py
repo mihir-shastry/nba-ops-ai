@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import nba_api_compat  # noqa: F401
 
 from nba_api.stats.endpoints import (
-    leagueleaders,
+    leaguedashplayerstats,
     leaguedashteamstats,
     leaguegamefinder,
     shotchartdetail,
@@ -30,7 +30,7 @@ DELAY_BETWEEN_CALLS = 0.7
 MAX_RETRIES = 2
 BACKOFF_BASE = 2.0
 MAX_WORKERS = 5
-PLAYER_LIMIT = 50
+PLAYER_LIMIT = 150
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "nba_data.db")
 
@@ -201,45 +201,48 @@ def init_database(conn):
 
 # API fetch functions with retry
 @retry_with_backoff()
-def _api_league_leaders():
-    """Raw API call for league leaders."""
-    return leagueleaders.LeagueLeaders(
-        stat_category_abbreviation="PTS",
-        per_mode48="PerGame",
+@retry_with_backoff()
+def _api_player_stats():
+    """Raw API call for player stats (no GP minimum, returns all players)."""
+    return leaguedashplayerstats.LeagueDashPlayerStats(
         season="2025-26",
+        per_mode_detailed="PerGame",
         timeout=REQUEST_TIMEOUT
     )
 
 
 def fetch_league_leaders(conn):
-    """Fetch top players by PPG."""
-    print("Fetching league leaders...")
-    leaders = _api_league_leaders()
-    df = leaders.get_data_frames()[0]
-    df.columns = [c.lower().replace(" ", "_") for c in df.columns]
+    """Fetch all player stats via LeagueDashPlayerStats (no GP cutoff)."""
+    print("Fetching player stats...")
+    result = _api_player_stats()
+    df = result.get_data_frames()[0]
 
+    # Column names from LeagueDashPlayerStats are already in a good format
     cols = [
-        "player_id", "player", "team",
-        "pts", "reb", "ast", "stl", "blk", "tov",
-        "fg_pct", "fg3_pct", "ft_pct", "gp", "min"
+        "PLAYER_ID", "PLAYER_NAME", "TEAM_ABBREVIATION",
+        "PTS", "REB", "AST", "STL", "BLK", "TOV",
+        "FG_PCT", "FG3_PCT", "FT_PCT", "GP", "MIN"
     ]
     rename_map = {
-        "player": "player_name",
-        "team": "team_abbreviation",
-        "pts": "points_per_game",
-        "reb": "rebounds_per_game",
-        "ast": "assists_per_game",
-        "stl": "steals_per_game",
-        "blk": "blocks_per_game",
-        "tov": "turnovers_per_game",
-        "fg_pct": "field_goal_pct",
-        "fg3_pct": "three_point_pct",
-        "ft_pct": "free_throw_pct",
-        "gp": "games_played",
-        "min": "minutes_per_game"
+        "PLAYER_ID": "player_id",
+        "PLAYER_NAME": "player_name",
+        "TEAM_ABBREVIATION": "team_abbreviation",
+        "PTS": "points_per_game",
+        "REB": "rebounds_per_game",
+        "AST": "assists_per_game",
+        "STL": "steals_per_game",
+        "BLK": "blocks_per_game",
+        "TOV": "turnovers_per_game",
+        "FG_PCT": "field_goal_pct",
+        "FG3_PCT": "three_point_pct",
+        "FT_PCT": "free_throw_pct",
+        "GP": "games_played",
+        "MIN": "minutes_per_game"
     }
 
     df = df[cols].rename(columns=rename_map)
+    # Sort by PPG descending for consistency
+    df = df.sort_values("points_per_game", ascending=False).reset_index(drop=True)
     df.to_sql("league_leaders", conn, if_exists="replace", index=False)
     print(f"  Inserted {len(df)} players")
     return df

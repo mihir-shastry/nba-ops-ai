@@ -27,7 +27,7 @@ export default function SQLPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-extrabold mb-1">📊 SQL Analytics</h1>
+      <h1 className="text-3xl font-extrabold mb-1">SQL Analytics</h1>
       <p className="text-court-muted mb-6">Query NBA data with SQL</p>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
@@ -64,7 +64,7 @@ export default function SQLPage() {
           <button
             onClick={handleRun}
             disabled={mutation.isPending}
-            className="mt-3 px-6 py-2.5 bg-gradient-to-r from-court-orange to-court-gold text-court-bg font-bold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+            className="mt-3 px-6 py-2.5 bg-white text-black font-semibold rounded-lg hover:bg-white/90 transition-colors disabled:opacity-50"
           >
             {mutation.isPending ? "Running..." : "▶ Run Query"}
           </button>

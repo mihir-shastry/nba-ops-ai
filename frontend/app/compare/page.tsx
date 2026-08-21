@@ -41,7 +41,7 @@ export default function ComparePage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-extrabold mb-1">🔄 Player Comparison</h1>
+      <h1 className="text-3xl font-extrabold mb-1">Player Comparison</h1>
       <p className="text-court-muted mb-6">
         Compare two players head-to-head
       </p>
@@ -80,7 +80,7 @@ export default function ComparePage() {
           {/* Player Headers */}
           <div className="grid grid-cols-2 gap-8 mb-8">
             <div className="text-center">
-              <div className="text-4xl font-extrabold text-court-gold">
+              <div className="text-4xl font-extrabold">
                 {comparison.player1.rating}
               </div>
               <div className="text-lg font-bold">
@@ -92,7 +92,7 @@ export default function ComparePage() {
               </div>
             </div>
             <div className="text-center">
-              <div className="text-4xl font-extrabold text-court-orange">
+              <div className="text-4xl font-extrabold">
                 {comparison.player2.rating}
               </div>
               <div className="text-lg font-bold">
@@ -157,9 +157,7 @@ export default function ComparePage() {
               const isP1 = v.winner === comparison.player1.player.player_name;
               const color = isEven
                 ? "text-court-muted"
-                : isP1
-                  ? "text-court-gold"
-                  : "text-court-orange";
+                : "text-white";
 
               return (
                 <div
@@ -201,12 +199,12 @@ export default function ComparePage() {
                   >
                     <td className="px-4 py-3 font-semibold">{s.stat}</td>
                     <td
-                      className={`px-4 py-3 ${s.winner === "player1" ? "text-court-gold font-bold" : ""}`}
+                      className={`px-4 py-3 ${s.winner === "player1" ? "text-white font-bold" : ""}`}
                     >
                       {s.player1_value}
                     </td>
                     <td
-                      className={`px-4 py-3 ${s.winner === "player2" ? "text-court-orange font-bold" : ""}`}
+                      className={`px-4 py-3 ${s.winner === "player2" ? "text-white font-bold" : ""}`}
                     >
                       {s.player2_value}
                     </td>

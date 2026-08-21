@@ -41,7 +41,7 @@ export default function RatingsPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-extrabold mb-1">⭐ Player Ratings</h1>
+      <h1 className="text-3xl font-extrabold mb-1">Player Ratings</h1>
       <p className="text-court-muted mb-6">
         Context-aware ratings (0-100) based on z-score normalization
       </p>
@@ -215,6 +215,24 @@ export default function RatingsPage() {
           ) : null}
         </div>
       )}
+
+      {/* Rating Methodology Note */}
+      <div className="mt-12 border-t border-court-border pt-6">
+        <h3 className="text-xs font-semibold text-court-muted uppercase tracking-widest mb-3">
+          How Ratings Are Calculated
+        </h3>
+        <div className="text-xs text-court-muted leading-relaxed max-w-2xl space-y-2">
+          <p>
+            Each rating is computed using <strong className="text-white">z-score normalization</strong> across six core stats: points, rebounds, assists, steals, blocks, and turnovers. For each stat, a player&apos;s value is converted to standard deviations from the league mean.
+          </p>
+          <p>
+            The z-scores are then combined with weights that reflect impact: scoring (1.5×), rebounding (0.8×), playmaking (1.2×), steals (1.0×), blocks (1.0×), and turnovers (−0.5×, normalized per 36 minutes). The combined score is passed through a <strong className="text-white">sigmoid function</strong> to map it to a 0–100 scale, which naturally clusters most players around 50 and spreads elites toward 100.
+          </p>
+          <p>
+            League averages and standard deviations are computed from all players with 20+ games played in the current season. Turnovers are normalized to per-36 minutes to fairly compare players across different roles and minutes played.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

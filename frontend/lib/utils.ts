@@ -8,9 +8,9 @@ export function formatRating(val: number): string {
 }
 
 export function ratingColor(val: number): string {
-  if (val >= 90) return "text-court-gold font-bold";
-  if (val >= 80) return "text-court-green font-bold";
-  if (val >= 70) return "text-white";
+  if (val >= 90) return "text-white font-bold";
+  if (val >= 80) return "text-white";
+  if (val >= 70) return "text-neutral-400";
   return "text-court-muted";
 }
 

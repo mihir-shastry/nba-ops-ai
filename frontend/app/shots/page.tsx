@@ -49,7 +49,7 @@ export default function ShotsPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-extrabold mb-1">🎯 Shot Charts</h1>
+      <h1 className="text-3xl font-extrabold mb-1">Shot Charts</h1>
       <p className="text-court-muted mb-6">Shot visualization by player</p>
 
       <select

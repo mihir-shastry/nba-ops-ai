@@ -60,7 +60,7 @@ export default function TeamsPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-extrabold mb-1">🏆 Team Dashboard</h1>
+      <h1 className="text-3xl font-extrabold mb-1">Team Dashboard</h1>
       <p className="text-court-muted mb-6">
         Conference standings — click a team to see their profile
       </p>

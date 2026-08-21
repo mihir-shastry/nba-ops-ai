@@ -25,7 +25,7 @@ export default function MatchesPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-extrabold mb-1">🏟️ Match Dashboard</h1>
+      <h1 className="text-3xl font-extrabold mb-1">Match Dashboard</h1>
       <p className="text-court-muted mb-6">
         Game box scores with player ratings
       </p>

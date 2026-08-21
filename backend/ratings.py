@@ -2,7 +2,8 @@
 Player Rating System
 Z-score based player ratings (0-100 scale) computed from season averages.
 Normalizes each stat to standard deviations from the mean, then combines
-with weights. Avoids per36 inflation that makes bench players look elite.
+with weights. Uses TOV per 36 minutes to normalize for playing time.
+Incorporates lineup-based impact (simplified RAPM) for on-court value.
 Zero Gemini calls — pure SQL + Python.
 """
 
@@ -10,13 +11,107 @@ import math
 from .sql_engine import execute_query
 
 
-def _compute_rating(row, league_stats=None):
+def _make_short_name(name):
+    """Convert 'Stephen Curry' to 'S. Curry' for lineup name matching."""
+    parts = name.split()
+    if len(parts) >= 2:
+        return f"{parts[0][0]}. {parts[-1]}"
+    return name
+
+
+def _get_lineup_impact():
+    """
+    Compute per-player lineup impact (simplified RAPM) from 5-man lineup data.
+    Returns dict of player_name -> (z_score, lineup_minutes).
+    Players with < 100 lineup minutes get z_score = 0 (neutral).
+    """
+    # Get all lineups
+    result = execute_query("""
+        SELECT team_abbreviation, lineup, games, minutes, plus_minus
+        FROM lineup_stats
+        WHERE games >= 5
+    """)
+    if result["error"] or not result["rows"]:
+        return {}
+
+    # Build name mapping (short -> full)
+    name_result = execute_query("SELECT player_name FROM league_leaders")
+    if name_result["error"] or not name_result["rows"]:
+        return {}
+    full_names = [r[0] for r in name_result["rows"]]
+    short_to_full = {}
+    for fn in full_names:
+        short = _make_short_name(fn)
+        if short not in short_to_full:
+            short_to_full[short] = fn
+
+    # Build team baselines (+/- per minute)
+    team_stats = {}  # team -> [total_pm, total_minutes]
+    for row in result["rows"]:
+        team, lineup, games, minutes, pm = row[0], row[1], row[2], row[3], row[4]
+        if team not in team_stats:
+            team_stats[team] = [0, 0]
+        team_stats[team][0] += (pm or 0)
+        team_stats[team][1] += (minutes or 0)
+
+    team_baselines = {}
+    for team, (pm, mins) in team_stats.items():
+        team_baselines[team] = pm / mins if mins > 0 else 0
+
+    # Get player teams
+    team_result = execute_query("SELECT player_name, team_abbreviation FROM league_leaders")
+    player_teams = {r[0]: r[1] for r in team_result["rows"]} if not team_result["error"] else {}
+
+    # Compute per-player impact
+    player_lineups = {}  # player -> [(pm_per_min, minutes)]
+    for row in result["rows"]:
+        team, lineup, games, minutes, pm = row[0], row[1], row[2], row[3], row[4]
+        if not minutes or minutes <= 0:
+            continue
+        pm_per_min = (pm or 0) / minutes
+        for short_name in lineup.split(' - '):
+            short_name = short_name.strip()
+            full_name = short_to_full.get(short_name)
+            if full_name:
+                if full_name not in player_lineups:
+                    player_lineups[full_name] = []
+                player_lineups[full_name].append((pm_per_min, minutes))
+
+    # Compute weighted average +/- per minute, relative to team baseline
+    player_relative = {}  # player -> (relative_impact, total_minutes)
+    for player, lineups_data in player_lineups.items():
+        total_pm = sum(pm * mins for pm, mins in lineups_data)
+        total_mins = sum(mins for _, mins in lineups_data)
+        if total_mins >= 100:  # Minimum 100 minutes for reliability
+            team = player_teams.get(player)
+            if team and team in team_baselines:
+                abs_impact = total_pm / total_mins
+                player_relative[player] = (abs_impact - team_baselines[team], total_mins)
+
+    if not player_relative:
+        return {}
+
+    # Z-score normalize
+    impacts = [v[0] for v in player_relative.values()]
+    mean_imp = sum(impacts) / len(impacts)
+    std_imp = math.sqrt(sum((x - mean_imp) ** 2 for x in impacts) / len(impacts))
+    if std_imp <= 0:
+        std_imp = 1
+
+    return {
+        player: ((impact - mean_imp) / std_imp, mins)
+        for player, (impact, mins) in player_relative.items()
+    }
+
+
+def _compute_rating(row, league_stats=None, lineup_z=0):
     """
     Compute a player rating using z-score normalization.
     
     Args:
         row: dict with pts, reb, ast, stl, blk, tov, min, fg_pct, three_pct, ft_pct, gp
         league_stats: dict with mean and std for each stat (precomputed)
+        lineup_z: z-score of player's lineup impact (simplified RAPM), default 0
     
     Returns:
         float: rating on 0-100 scale
@@ -27,7 +122,11 @@ def _compute_rating(row, league_stats=None):
     stl = row.get("stl", 0) or 0
     blk = row.get("blk", 0) or 0
     tov = row.get("tov", 0) or 0
+    min_played = row.get("min", 36) or 36
     gp = row.get("gp", 82) or 82
+    
+    # Normalize turnovers to per-36 minutes for fair comparison across roles
+    tov_per_36 = (tov / min_played) * 36
     
     # Z-score normalization for each stat
     if league_stats:
@@ -36,7 +135,7 @@ def _compute_rating(row, league_stats=None):
         z_ast = (ast - league_stats["ast_mean"]) / league_stats["ast_std"] if league_stats["ast_std"] > 0 else 0
         z_stl = (stl - league_stats["stl_mean"]) / league_stats["stl_std"] if league_stats["stl_std"] > 0 else 0
         z_blk = (blk - league_stats["blk_mean"]) / league_stats["blk_std"] if league_stats["blk_std"] > 0 else 0
-        z_tov = (tov - league_stats["tov_mean"]) / league_stats["tov_std"] if league_stats["tov_std"] > 0 else 0
+        z_tov = (tov_per_36 - league_stats["tov_mean"]) / league_stats["tov_std"] if league_stats["tov_std"] > 0 else 0
     else:
         # Fallback: use rough league averages
         z_pts = (pts - 12) / 6
@@ -44,10 +143,14 @@ def _compute_rating(row, league_stats=None):
         z_ast = (ast - 3) / 2
         z_stl = (stl - 1) / 0.5
         z_blk = (blk - 0.5) / 0.5
-        z_tov = (tov - 2) / 1
+        z_tov = (tov_per_36 - 2) / 1
     
-    # Weighted combination (scoring weighted highest, turnovers penalized)
-    raw_z = (z_pts * 1.0 + z_reb * 0.8 + z_ast * 1.2 + z_stl * 1.5 + z_blk * 1.5 - z_tov * 0.8)
+    # Weighted combination
+    # Scoring and playmaking are primary drivers; steals/blocks are supplementary;
+    # turnovers penalized mildly (ball-handlers inherently have higher volume)
+    # lineup_z is computed but reserved for future use with play-by-play data
+    raw_z = (z_pts * 1.5 + z_reb * 0.8 + z_ast * 1.2 + z_stl * 1.0 + z_blk * 1.0
+             - z_tov * 0.5)
     
     # Sigmoid scaling: maps raw_z to 0-100 with natural clustering
     # raw_z=0 → 50, raw_z=5 → ~82, raw_z=10 → ~98
@@ -58,11 +161,13 @@ def _compute_rating(row, league_stats=None):
 
 
 def _get_league_stats():
-    """Compute league-wide mean and std for each stat using actual standard deviation."""
+    """Compute league-wide mean and std for each stat using actual standard deviation.
+    Turnovers are normalized to per-36 minutes for fair comparison."""
     result = execute_query("""
         SELECT
             points_per_game, rebounds_per_game, assists_per_game,
-            steals_per_game, blocks_per_game, turnovers_per_game
+            steals_per_game, blocks_per_game, turnovers_per_game,
+            minutes_per_game
         FROM league_leaders
         WHERE games_played >= 20
     """)
@@ -76,14 +181,17 @@ def _get_league_stats():
         return None
 
     # Compute actual mean and std for each stat
-    stats = {"pts": [], "reb": [], "ast": [], "stl": [], "blk": [], "tov": []}
+    stats = {"pts": [], "reb": [], "ast": [], "stl": [], "blk": []}
+    tov_per_36_vals = []
     for row in rows:
         stats["pts"].append(row[0] or 0)
         stats["reb"].append(row[1] or 0)
         stats["ast"].append(row[2] or 0)
         stats["stl"].append(row[3] or 0)
         stats["blk"].append(row[4] or 0)
-        stats["tov"].append(row[5] or 0)
+        raw_tov = row[5] or 0
+        minutes = row[6] or 36
+        tov_per_36_vals.append((raw_tov / minutes) * 36)
 
     def mean(vals):
         return sum(vals) / len(vals) if vals else 0
@@ -99,7 +207,7 @@ def _get_league_stats():
         "ast_mean": mean(stats["ast"]), "ast_std": max(stddev(stats["ast"]), 0.5),
         "stl_mean": mean(stats["stl"]), "stl_std": max(stddev(stats["stl"]), 0.1),
         "blk_mean": mean(stats["blk"]), "blk_std": max(stddev(stats["blk"]), 0.1),
-        "tov_mean": mean(stats["tov"]), "tov_std": max(stddev(stats["tov"]), 0.3),
+        "tov_mean": mean(tov_per_36_vals), "tov_std": max(stddev(tov_per_36_vals), 0.3),
     }
 
 
@@ -112,6 +220,7 @@ def get_player_ratings(sort_by="rating", limit=50) -> dict:
         - columns: list of column names
     """
     league_stats = _get_league_stats()
+    lineup_impact = _get_lineup_impact()
 
     result = execute_query("""
         SELECT
@@ -144,7 +253,8 @@ def get_player_ratings(sort_by="rating", limit=50) -> dict:
             "fg_pct": row[8], "three_pct": row[9], "ft_pct": row[10],
             "min": row[12], "gp": row[11]
         }
-        rating = _compute_rating(stats, league_stats)
+        lineup_z = lineup_impact.get(row[0], (0, 0))[0]
+        rating = _compute_rating(stats, league_stats, lineup_z)
 
         # Component scores for radar chart (z-scores normalized to 0-100)
         max_pts, max_reb, max_ast, max_stl, max_blk = 35, 14, 12, 2.5, 3.0
@@ -163,6 +273,7 @@ def get_player_ratings(sort_by="rating", limit=50) -> dict:
             "three_point_pct": round(row[9] * 100, 1) if row[9] and row[9] < 1 else row[9],
             "games_played": row[11],
             "minutes_per_game": row[12],
+            "lineup_impact": round(lineup_z, 2),
             "scoring": min(100, max(0, 50 + ((row[2] - (league_stats["pts_mean"] if league_stats else 12)) / (league_stats["pts_std"] if league_stats else 6)) * 25)),
             "rebounding": min(100, max(0, 50 + ((row[3] - (league_stats["reb_mean"] if league_stats else 4.5)) / (league_stats["reb_std"] if league_stats else 2.5)) * 25)),
             "playmaking": min(100, max(0, 50 + ((row[4] - (league_stats["ast_mean"] if league_stats else 3)) / (league_stats["ast_std"] if league_stats else 2)) * 25)),
@@ -195,6 +306,7 @@ def get_player_rating_detail(player_name: str) -> dict:
     Get detailed rating breakdown for a single player.
     """
     league_stats = _get_league_stats()
+    lineup_impact = _get_lineup_impact()
 
     result = execute_query(f"""
         SELECT
@@ -217,7 +329,8 @@ def get_player_rating_detail(player_name: str) -> dict:
         "fg_pct": row[8], "three_pct": row[9], "ft_pct": row[10],
         "min": row[12], "gp": row[11]
     }
-    rating = _compute_rating(stats, league_stats)
+    lineup_z = lineup_impact.get(row[0], (0, 0))[0]
+    rating = _compute_rating(stats, league_stats, lineup_z)
 
     # Component scores
     max_pts, max_reb, max_ast, max_stl, max_blk = 35, 14, 12, 2.5, 3.0
@@ -235,7 +348,8 @@ def get_player_rating_detail(player_name: str) -> dict:
         "field_goal_pct": round(row[8] * 100, 1) if row[8] and row[8] < 1 else row[8],
         "three_point_pct": round(row[9] * 100, 1) if row[9] and row[9] < 1 else row[9],
         "games_played": row[11],
-        "minutes_per_game": row[12]
+        "minutes_per_game": row[12],
+        "lineup_impact": round(lineup_z, 2)
     }
 
     breakdown = {

@@ -53,7 +53,7 @@ export default function ChatPage() {
 
   return (
     <div className="max-w-4xl mx-auto">
-      <h1 className="text-3xl font-extrabold mb-1">💬 AI Assistant</h1>
+      <h1 className="text-3xl font-extrabold mb-1">AI Assistant</h1>
       <p className="text-court-muted mb-6">
         Ask questions about NBA players and teams — powered by Text-to-SQL
       </p>
@@ -114,7 +114,7 @@ export default function ChatPage() {
         <button
           onClick={handleSend}
           disabled={mutation.isPending}
-          className="px-4 py-3 bg-gradient-to-r from-court-orange to-court-gold text-court-bg rounded-xl font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
+          className="px-4 py-3 bg-white text-black rounded-xl font-semibold hover:bg-white/90 transition-colors disabled:opacity-50"
         >
           <Send size={18} />
         </button>
