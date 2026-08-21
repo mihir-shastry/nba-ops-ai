@@ -46,6 +46,7 @@ def get_match_list(team: str = None, date_from: str = None, date_to: str = None)
             plus_minus
         FROM team_game_logs
         {where_clause}
+        GROUP BY game_id, team_abbreviation
         ORDER BY game_date DESC
     """
 

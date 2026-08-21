@@ -31,10 +31,10 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS for Streamlit frontend
+# CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8501"],
+    allow_origins=["http://localhost:3000", "http://localhost:8501"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

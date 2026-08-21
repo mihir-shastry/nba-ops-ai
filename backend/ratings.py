@@ -49,31 +49,20 @@ def _compute_rating(row, league_stats=None):
     # Weighted combination (scoring weighted highest, turnovers penalized)
     raw_z = (z_pts * 1.0 + z_reb * 0.8 + z_ast * 1.2 + z_stl * 1.5 + z_blk * 1.5 - z_tov * 0.8)
     
-    # Scale to 0-100: raw_z typically ranges from -3 to +4
-    # Map: -3 → 0, +3 → 100
-    rating = 50 + (raw_z / 6) * 50
+    # Sigmoid scaling: maps raw_z to 0-100 with natural clustering
+    # raw_z=0 → 50, raw_z=5 → ~82, raw_z=10 → ~98
+    rating = 100 / (1 + math.exp(-raw_z / 3))
     rating = min(100, max(0, rating))
     
     return round(rating, 1)
 
 
 def _get_league_stats():
-    """Compute league-wide mean and std for each stat."""
+    """Compute league-wide mean and std for each stat using actual standard deviation."""
     result = execute_query("""
         SELECT
-            AVG(points_per_game) as pts_mean,
-            -- Approximate std using max-min range / 4 (rough estimate)
-            (MAX(points_per_game) - MIN(points_per_game)) / 4.0 as pts_std,
-            AVG(rebounds_per_game) as reb_mean,
-            (MAX(rebounds_per_game) - MIN(rebounds_per_game)) / 4.0 as reb_std,
-            AVG(assists_per_game) as ast_mean,
-            (MAX(assists_per_game) - MIN(assists_per_game)) / 4.0 as ast_std,
-            AVG(steals_per_game) as stl_mean,
-            (MAX(steals_per_game) - MIN(steals_per_game)) / 4.0 as stl_std,
-            AVG(blocks_per_game) as blk_mean,
-            (MAX(blocks_per_game) - MIN(blocks_per_game)) / 4.0 as blk_std,
-            AVG(turnovers_per_game) as tov_mean,
-            (MAX(turnovers_per_game) - MIN(turnovers_per_game)) / 4.0 as tov_std
+            points_per_game, rebounds_per_game, assists_per_game,
+            steals_per_game, blocks_per_game, turnovers_per_game
         FROM league_leaders
         WHERE games_played >= 20
     """)
@@ -81,15 +70,36 @@ def _get_league_stats():
     if result["error"] or not result["rows"]:
         return None
 
-    row = result["rows"][0]
-    # Ensure no zero stds
+    rows = result["rows"]
+    n = len(rows)
+    if n < 2:
+        return None
+
+    # Compute actual mean and std for each stat
+    stats = {"pts": [], "reb": [], "ast": [], "stl": [], "blk": [], "tov": []}
+    for row in rows:
+        stats["pts"].append(row[0] or 0)
+        stats["reb"].append(row[1] or 0)
+        stats["ast"].append(row[2] or 0)
+        stats["stl"].append(row[3] or 0)
+        stats["blk"].append(row[4] or 0)
+        stats["tov"].append(row[5] or 0)
+
+    def mean(vals):
+        return sum(vals) / len(vals) if vals else 0
+
+    def stddev(vals):
+        m = mean(vals)
+        variance = sum((x - m) ** 2 for x in vals) / len(vals)
+        return math.sqrt(variance) if variance > 0 else 1
+
     return {
-        "pts_mean": row[0] or 12, "pts_std": max(row[1] or 6, 1),
-        "reb_mean": row[2] or 4.5, "reb_std": max(row[3] or 2.5, 0.5),
-        "ast_mean": row[4] or 3, "ast_std": max(row[5] or 2, 0.5),
-        "stl_mean": row[6] or 1, "stl_std": max(row[7] or 0.5, 0.1),
-        "blk_mean": row[8] or 0.5, "blk_std": max(row[9] or 0.5, 0.1),
-        "tov_mean": row[10] or 2, "tov_std": max(row[11] or 1, 0.3),
+        "pts_mean": mean(stats["pts"]), "pts_std": max(stddev(stats["pts"]), 1),
+        "reb_mean": mean(stats["reb"]), "reb_std": max(stddev(stats["reb"]), 0.5),
+        "ast_mean": mean(stats["ast"]), "ast_std": max(stddev(stats["ast"]), 0.5),
+        "stl_mean": mean(stats["stl"]), "stl_std": max(stddev(stats["stl"]), 0.1),
+        "blk_mean": mean(stats["blk"]), "blk_std": max(stddev(stats["blk"]), 0.1),
+        "tov_mean": mean(stats["tov"]), "tov_std": max(stddev(stats["tov"]), 0.3),
     }
 
 
@@ -157,7 +167,7 @@ def get_player_ratings(sort_by="rating", limit=50) -> dict:
             "rebounding": min(100, max(0, 50 + ((row[3] - (league_stats["reb_mean"] if league_stats else 4.5)) / (league_stats["reb_std"] if league_stats else 2.5)) * 25)),
             "playmaking": min(100, max(0, 50 + ((row[4] - (league_stats["ast_mean"] if league_stats else 3)) / (league_stats["ast_std"] if league_stats else 2)) * 25)),
             "defense": min(100, max(0, 50 + (((row[5] + row[6]) - ((league_stats["stl_mean"] if league_stats else 1) + (league_stats["blk_mean"] if league_stats else 0.5))) / ((league_stats["stl_std"] if league_stats else 0.5) + (league_stats["blk_std"] if league_stats else 0.5))) * 25)),
-            "efficiency": min(100, max(0, 50 + ((row[8] or 0.45 - 0.45) / 0.08) * 50))
+            "efficiency": min(100, max(0, 50 + (((row[8] or 0.45) - 0.45) / 0.08) * 50))
         })
 
     # Sort
@@ -233,7 +243,7 @@ def get_player_rating_detail(player_name: str) -> dict:
         "rebounding": min(100, max(0, 50 + ((row[3] - (league_stats["reb_mean"] if league_stats else 4.5)) / (league_stats["reb_std"] if league_stats else 2.5)) * 25)),
         "playmaking": min(100, max(0, 50 + ((row[4] - (league_stats["ast_mean"] if league_stats else 3)) / (league_stats["ast_std"] if league_stats else 2)) * 25)),
         "defense": min(100, max(0, 50 + (((row[5] + row[6]) - ((league_stats["stl_mean"] if league_stats else 1) + (league_stats["blk_mean"] if league_stats else 0.5))) / ((league_stats["stl_std"] if league_stats else 0.5) + (league_stats["blk_std"] if league_stats else 0.5))) * 25)),
-        "efficiency": min(100, max(0, 50 + ((row[8] or 0.45 - 0.45) / 0.08) * 50))
+        "efficiency": min(100, max(0, 50 + (((row[8] or 0.45) - 0.45) / 0.08) * 50))
     }
 
     # Get game log for trend chart

@@ -1,0 +1,220 @@
+"use client";
+
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { fetchRatings, fetchPlayerRating } from "@/lib/api";
+import { ratingColor } from "@/lib/utils";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import {
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  Radar,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+
+export default function RatingsPage() {
+  const [sortBy, setSortBy] = useState("rating");
+  const [limit, setLimit] = useState(50);
+  const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["ratings", sortBy, limit],
+    queryFn: () => fetchRatings(sortBy, limit),
+  });
+
+  const { data: playerDetail, isLoading: detailLoading } = useQuery({
+    queryKey: ["playerRating", selectedPlayer],
+    queryFn: () => fetchPlayerRating(selectedPlayer!),
+    enabled: !!selectedPlayer,
+  });
+
+  if (isLoading) return <LoadingSkeleton rows={15} />;
+
+  const players = data?.players || [];
+
+  return (
+    <div>
+      <h1 className="text-3xl font-extrabold mb-1">⭐ Player Ratings</h1>
+      <p className="text-court-muted mb-6">
+        Context-aware ratings (0-100) based on z-score normalization
+      </p>
+
+      <div className="flex gap-4 mb-6">
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          className="bg-court-card border border-court-border rounded-lg px-4 py-2 text-sm text-white"
+        >
+          <option value="rating">Overall Rating</option>
+          <option value="pts">Points</option>
+          <option value="reb">Rebounds</option>
+          <option value="ast">Assists</option>
+        </select>
+        <input
+          type="range"
+          min={10}
+          max={100}
+          value={limit}
+          onChange={(e) => setLimit(Number(e.target.value))}
+          className="w-48"
+        />
+        <span className="text-court-muted text-sm">Top {limit}</span>
+      </div>
+
+      <div className="overflow-auto rounded-xl border border-court-border bg-court-card mb-8">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-court-border">
+              {[
+                "#",
+                "Player",
+                "Team",
+                "Rating",
+                "PPG",
+                "RPG",
+                "APG",
+                "FG%",
+                "3PT%",
+              ].map((h) => (
+                <th
+                  key={h}
+                  className="px-4 py-3 text-left text-court-muted text-xs uppercase tracking-wider"
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {players.map((p: any, i: number) => (
+              <tr
+                key={p.player_name}
+                className={`border-b border-court-border hover:bg-white/5 cursor-pointer ${
+                  selectedPlayer === p.player_name ? "bg-white/5" : ""
+                }`}
+                onClick={() => setSelectedPlayer(p.player_name)}
+              >
+                <td className="px-4 py-3 text-court-muted">{i + 1}</td>
+                <td className="px-4 py-3 font-semibold">{p.player_name}</td>
+                <td className="px-4 py-3">{p.team_abbreviation}</td>
+                <td className={`px-4 py-3 ${ratingColor(p.rating)}`}>
+                  {p.rating}
+                </td>
+                <td className="px-4 py-3">{p.points_per_game}</td>
+                <td className="px-4 py-3">{p.rebounds_per_game}</td>
+                <td className="px-4 py-3">{p.assists_per_game}</td>
+                <td className="px-4 py-3">{p.field_goal_pct}%</td>
+                <td className="px-4 py-3">{p.three_point_pct}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {selectedPlayer && (
+        <div className="bg-court-card border border-court-border rounded-xl p-6">
+          {detailLoading ? (
+            <LoadingSkeleton rows={5} />
+          ) : playerDetail ? (
+            <div>
+              <div className="flex items-start gap-8 mb-6">
+                <div className="flex-1">
+                  <h2 className="text-2xl font-extrabold">
+                    {playerDetail.player.player_name}
+                  </h2>
+                  <p className="text-court-muted">
+                    {playerDetail.player.team_abbreviation} |{" "}
+                    {playerDetail.player.games_played} games |{" "}
+                    {playerDetail.player.minutes_per_game?.toFixed(1)} MPG
+                  </p>
+                </div>
+                <div className="text-center">
+                  <div className="text-5xl font-extrabold text-court-gold">
+                    {playerDetail.rating}
+                  </div>
+                  <div className="text-court-muted text-sm">RATING</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Radar Chart */}
+                <div>
+                  <h3 className="text-sm font-bold text-court-muted mb-2 uppercase">
+                    Skill Breakdown
+                  </h3>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <RadarChart data={Object.entries(playerDetail.breakdown).map(([k, v]) => ({ category: k.charAt(0).toUpperCase() + k.slice(1), value: v }))}>
+                      <PolarGrid stroke="rgba(255,255,255,0.1)" />
+                      <PolarAngleAxis dataKey="category" tick={{ fill: "#a0a0b0", fontSize: 12 }} />
+                      <Radar
+                        dataKey="value"
+                        stroke="#f7c948"
+                        fill="#f7c948"
+                        fillOpacity={0.2}
+                      />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Trend Line */}
+                <div>
+                  <h3 className="text-sm font-bold text-court-muted mb-2 uppercase">
+                    Rating Trend
+                  </h3>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart
+                      data={playerDetail.game_log?.slice(-20) || []}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                      <XAxis dataKey="date" tick={{ fill: "#a0a0b0", fontSize: 10 }} />
+                      <YAxis domain={[0, 100]} tick={{ fill: "#a0a0b0", fontSize: 10 }} />
+                      <Tooltip
+                        contentStyle={{
+                          background: "#161638",
+                          border: "1px solid rgba(255,255,255,0.1)",
+                          borderRadius: 8,
+                        }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="rating"
+                        stroke="#f7c948"
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Season Stats */}
+              <div className="grid grid-cols-5 gap-4 mt-6">
+                {[
+                  { label: "PPG", value: playerDetail.player.points_per_game },
+                  { label: "RPG", value: playerDetail.player.rebounds_per_game },
+                  { label: "APG", value: playerDetail.player.assists_per_game },
+                  { label: "FG%", value: `${playerDetail.player.field_goal_pct}%` },
+                  { label: "3PT%", value: `${playerDetail.player.three_point_pct}%` },
+                ].map((s) => (
+                  <div key={s.label} className="text-center">
+                    <div className="text-xs text-court-muted uppercase">
+                      {s.label}
+                    </div>
+                    <div className="text-xl font-bold">{s.value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}

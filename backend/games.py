@@ -32,6 +32,7 @@ def get_game_logs(team: str = None, result: str = None) -> dict:
 
     query = f"""
         SELECT
+            game_id,
             team_abbreviation as team,
             game_date,
             matchup,
@@ -47,6 +48,7 @@ def get_game_logs(team: str = None, result: str = None) -> dict:
             plus_minus
         FROM team_game_logs
         {where_clause}
+        GROUP BY game_id, team_abbreviation
         ORDER BY game_date DESC
     """
 
@@ -58,7 +60,7 @@ def get_game_logs(team: str = None, result: str = None) -> dict:
     games = []
     for row in result_data["rows"]:
         # Clean up matchup for display
-        matchup = row[2]
+        matchup = row[3]
         if "vs." in matchup:
             opponent = matchup.split("vs.")[-1].strip()
             display_matchup = f"vs {opponent}"
@@ -69,19 +71,20 @@ def get_game_logs(team: str = None, result: str = None) -> dict:
             display_matchup = matchup
 
         games.append({
-            "team": row[0],
-            "date": row[1],
+            "game_id": row[0],
+            "team": row[1],
+            "date": row[2],
             "matchup": display_matchup,
-            "result": row[3],
-            "points": row[4],
-            "rebounds": row[5],
-            "assists": row[6],
-            "steals": row[7],
-            "blocks": row[8],
-            "turnovers": row[9],
-            "fg_pct": row[10],
-            "three_pct": row[11],
-            "plus_minus": row[12]
+            "result": row[4],
+            "points": row[5],
+            "rebounds": row[6],
+            "assists": row[7],
+            "steals": row[8],
+            "blocks": row[9],
+            "turnovers": row[10],
+            "fg_pct": row[11],
+            "three_pct": row[12],
+            "plus_minus": row[13]
         })
 
     columns = [

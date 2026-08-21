@@ -5,7 +5,7 @@ Zero Gemini calls — pure SQL + Python.
 """
 
 from .sql_engine import execute_query
-from .ratings import _compute_rating
+from .ratings import _compute_rating, _get_league_stats
 
 
 def get_player_stats(player_name: str) -> dict:
@@ -41,7 +41,8 @@ def get_player_stats(player_name: str) -> dict:
         "min": row[12]
     }
     gp = row[11]
-    rating = _compute_rating(stats, gp)
+    league_stats = _get_league_stats()
+    rating = _compute_rating(stats, league_stats)
 
     # Component scores for radar chart (0-100 each)
     max_pts, max_reb, max_ast, max_stl, max_blk = 35, 14, 12, 2.5, 3.0
