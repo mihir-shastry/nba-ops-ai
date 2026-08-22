@@ -24,6 +24,7 @@ from .ratings import get_player_ratings, get_player_rating_detail
 from .compare import get_player_stats, compare_players
 from .matches import get_match_list, get_match_detail
 from .lineups import get_team_lineups, get_league_best_lineups
+from .similarity import get_similar_players
 
 app = FastAPI(
     title="NBA Operations AI Assistant",
@@ -249,6 +250,16 @@ async def get_best_lineups(min_minutes: float = 100, limit: int = 20):
     result = get_league_best_lineups(min_minutes=min_minutes, limit=limit)
     if "error" in result:
         raise HTTPException(status_code=500, detail=result["error"])
+    return result
+
+
+# Player Similarity Endpoints
+@app.get("/similar/{player_name}")
+async def get_similar(player_name: str, limit: int = 5):
+    """Find the most similar players using cosine distance on stat vectors."""
+    result = get_similar_players(player_name, limit=limit)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
     return result
 
 

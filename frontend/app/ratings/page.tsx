@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { fetchRatings, fetchPlayerRating } from "@/lib/api";
+import { fetchRatings, fetchPlayerRating, fetchSimilarPlayers } from "@/lib/api";
 import { ratingColor } from "@/lib/utils";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import {
@@ -32,6 +32,12 @@ export default function RatingsPage() {
   const { data: playerDetail, isLoading: detailLoading } = useQuery({
     queryKey: ["playerRating", selectedPlayer],
     queryFn: () => fetchPlayerRating(selectedPlayer!),
+    enabled: !!selectedPlayer,
+  });
+
+  const { data: similarData, isLoading: similarLoading } = useQuery({
+    queryKey: ["similarPlayers", selectedPlayer],
+    queryFn: () => fetchSimilarPlayers(selectedPlayer!),
     enabled: !!selectedPlayer,
   });
 
@@ -211,6 +217,39 @@ export default function RatingsPage() {
                   </div>
                 ))}
               </div>
+
+              {/* Similar Players */}
+              {similarData?.similar_players?.length > 0 && (
+                <div className="mt-8 border-t border-court-border pt-6">
+                  <h3 className="text-sm font-bold text-court-muted mb-4 uppercase">
+                    Most Similar Players
+                  </h3>
+                  <div className="grid grid-cols-5 gap-3">
+                    {similarData.similar_players.map((sp: any) => (
+                      <div
+                        key={sp.player_name}
+                        className="bg-court-bg rounded-lg p-3 border border-court-border hover:border-court-gold/50 transition-colors cursor-pointer"
+                        onClick={() => setSelectedPlayer(sp.player_name)}
+                      >
+                        <div className="text-sm font-bold truncate">{sp.player_name}</div>
+                        <div className="text-xs text-court-muted">{sp.team_abbreviation}</div>
+                        <div className="mt-2 flex items-center gap-2">
+                          <div className="text-lg font-extrabold text-court-gold">
+                            {(sp.similarity * 100).toFixed(0)}%
+                          </div>
+                          <div className="text-xs text-court-muted">match</div>
+                        </div>
+                        <div className="mt-1 text-xs text-court-muted">
+                          {sp.points_per_game} pts / {sp.rebounds_per_game} reb / {sp.assists_per_game} ast
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-court-muted mt-3">
+                    Based on cosine similarity across points, rebounds, assists, steals, blocks, turnovers/36, FG%, and 3PT%
+                  </p>
+                </div>
+              )}
             </div>
           ) : null}
         </div>

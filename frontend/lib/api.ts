@@ -133,3 +133,13 @@ export async function askQuestion(question: string) {
     rows: any[][];
   }>("/chat/ask", { method: "POST", body: JSON.stringify({ question }) });
 }
+
+
+// ---- Similarity ----
+export async function fetchSimilarPlayers(name: string, limit = 5) {
+  return fetchJSON<{
+    player: any;
+    similar_players: any[];
+    stat_vector_labels: string[];
+  }>(`/similar/${encodeURIComponent(name)}?limit=${limit}`);
+}
