@@ -62,7 +62,7 @@ export default function RatingsPage() {
     <div>
       <h1 className="text-3xl font-extrabold mb-1">Player Ratings</h1>
       <p className="text-court-muted mb-6">
-        Context-aware ratings (0-100) based on z-score normalization
+        Context-aware ratings (0-100) combining box score stats with advanced metrics
       </p>
 
       <div className="flex gap-4 mb-6">
@@ -323,13 +323,13 @@ export default function RatingsPage() {
         </h3>
         <div className="text-xs text-court-muted leading-relaxed max-w-2xl space-y-2">
           <p>
-            Each rating is computed using <strong className="text-white">z-score normalization</strong> across six core stats: points, rebounds, assists, steals, blocks, and turnovers. For each stat, a player&apos;s value is converted to standard deviations from the league mean.
+            Each rating blends <strong className="text-white">box score stats</strong> (points, rebounds, assists, steals, blocks, turnovers) with <strong className="text-white">advanced metrics</strong> (True Shooting %, Usage Rate, Net Rating, Player Impact Estimate). Each stat is converted to a percentile rank (0–100) relative to the league.
           </p>
           <p>
-            The z-scores are then combined with weights that reflect impact: scoring (1.5×), rebounding (0.8×), playmaking (1.2×), steals (1.0×), blocks (1.0×), and turnovers (−0.5×, normalized per 36 minutes). The combined score is passed through a <strong className="text-white">sigmoid function</strong> to map it to a 0–100 scale, which naturally clusters most players around 50 and spreads elites toward 100.
+            Box score weights: scoring (2.0×), rebounding (0.6×), playmaking (0.8×), steals (0.2×), blocks (0.2×), turnovers (0.3×). Advanced weights: TS% (1.5×), Usage Rate (1.0×), Net Rating (0.8×), PIE (0.5×). The combined score passes through a <strong className="text-white">sigmoid function</strong> to map it to 0–100.
           </p>
           <p>
-            League averages and standard deviations are computed from all players with 20+ games played in the current season. Turnovers are normalized to per-36 minutes to fairly compare players across different roles and minutes played.
+            Advanced metrics capture efficiency (TS%), volume (USG%), and team impact (NET_RATING) — things box scores alone miss. A high-usage, efficient scorer on a winning team ranks higher than a high-volume scorer on a losing team with poor efficiency.
           </p>
         </div>
       </div>
