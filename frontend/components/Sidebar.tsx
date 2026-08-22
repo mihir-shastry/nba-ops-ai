@@ -17,15 +17,9 @@ import {
 
 const navItems = [
   { href: "/", label: "Home", icon: Activity },
-  { href: "/sql", label: "SQL Analytics", icon: Database },
-  { href: "/shots", label: "Shot Charts", icon: Target },
-  { href: "/teams", label: "Teams", icon: Trophy },
-  { href: "/games", label: "Games", icon: Calendar },
   { href: "/ratings", label: "Ratings", icon: Star },
   { href: "/compare", label: "Compare", icon: GitCompare },
-  { href: "/matches", label: "Matches", icon: LayoutGrid },
-  { href: "/lineups", label: "Lineups", icon: Wrench },
-  { href: "/chat", label: "AI Assistant", icon: MessageSquare },
+  { href: "/teams", label: "Teams", icon: Trophy },
 ];
 
 export default function Sidebar() {

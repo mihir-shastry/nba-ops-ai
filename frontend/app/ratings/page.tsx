@@ -1,8 +1,8 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { fetchRatings, fetchPlayerRating, fetchSimilarPlayers } from "@/lib/api";
+import { useState, useRef, useEffect } from "react";
+import { fetchRatings, fetchPlayerRating, fetchSimilarPlayers, fetchPlayerMatches } from "@/lib/api";
 import { ratingColor } from "@/lib/utils";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import {
@@ -23,11 +23,18 @@ export default function RatingsPage() {
   const [sortBy, setSortBy] = useState("rating");
   const [limit, setLimit] = useState(50);
   const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["ratings", sortBy, limit],
     queryFn: () => fetchRatings(sortBy, limit),
   });
+
+  useEffect(() => {
+    if (selectedPlayer && detailRef.current) {
+      detailRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [selectedPlayer]);
 
   const { data: playerDetail, isLoading: detailLoading } = useQuery({
     queryKey: ["playerRating", selectedPlayer],
@@ -38,6 +45,12 @@ export default function RatingsPage() {
   const { data: similarData, isLoading: similarLoading } = useQuery({
     queryKey: ["similarPlayers", selectedPlayer],
     queryFn: () => fetchSimilarPlayers(selectedPlayer!),
+    enabled: !!selectedPlayer,
+  });
+
+  const { data: matchesData, isLoading: matchesLoading } = useQuery({
+    queryKey: ["playerMatches", selectedPlayer],
+    queryFn: () => fetchPlayerMatches(selectedPlayer!),
     enabled: !!selectedPlayer,
   });
 
@@ -125,7 +138,7 @@ export default function RatingsPage() {
       </div>
 
       {selectedPlayer && (
-        <div className="bg-court-card border border-court-border rounded-xl p-6">
+        <div ref={detailRef} className="bg-court-card border border-court-border rounded-xl p-6">
           {detailLoading ? (
             <LoadingSkeleton rows={5} />
           ) : playerDetail ? (
@@ -219,13 +232,13 @@ export default function RatingsPage() {
               </div>
 
               {/* Similar Players */}
-              {similarData?.similar_players?.length > 0 && (
+              {similarData?.similar_players && similarData.similar_players.length > 0 && (
                 <div className="mt-8 border-t border-court-border pt-6">
                   <h3 className="text-sm font-bold text-court-muted mb-4 uppercase">
                     Most Similar Players
                   </h3>
                   <div className="grid grid-cols-5 gap-3">
-                    {similarData.similar_players.map((sp: any) => (
+                    {similarData?.similar_players.map((sp: any) => (
                       <div
                         key={sp.player_name}
                         className="bg-court-bg rounded-lg p-3 border border-court-border hover:border-court-gold/50 transition-colors cursor-pointer"
@@ -250,6 +263,54 @@ export default function RatingsPage() {
                   </p>
                 </div>
               )}
+              {/* Recent Matches */}
+              {matchesData?.matches && matchesData.matches.length > 0 && (
+                <div className="mt-8 border-t border-court-border pt-6">
+                  <h3 className="text-sm font-bold text-court-muted mb-4 uppercase">
+                    Recent Matches - {playerDetail.player.team_abbreviation}
+                  </h3>
+                  <div className="overflow-auto rounded-lg border border-court-border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-court-border bg-court-bg">
+                          <th className="px-3 py-2 text-left text-court-muted text-xs">Date</th>
+                          <th className="px-3 py-2 text-left text-court-muted text-xs">Matchup</th>
+                          <th className="px-3 py-2 text-center text-court-muted text-xs">Result</th>
+                          <th className="px-3 py-2 text-right text-court-muted text-xs">PTS</th>
+                          <th className="px-3 py-2 text-right text-court-muted text-xs">REB</th>
+                          <th className="px-3 py-2 text-right text-court-muted text-xs">AST</th>
+                          <th className="px-3 py-2 text-right text-court-muted text-xs">+/-</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {matchesData?.matches.map((m: any, idx: number) => (
+                          <tr key={idx} className="border-b border-court-border hover:bg-white/5">
+                            <td className="px-3 py-2 text-court-muted">{m.date}</td>
+                            <td className="px-3 py-2">{m.matchup}</td>
+                            <td className={`px-3 py-2 text-center font-bold ${
+                              m.result === 'W' ? 'text-green-400' : 'text-red-400'
+                            }`}>
+                              {m.result}
+                            </td>
+                            <td className="px-3 py-2 text-right">{m.points}</td>
+                            <td className="px-3 py-2 text-right">{m.rebounds}</td>
+                            <td className="px-3 py-2 text-right">{m.assists}</td>
+                            <td className={`px-3 py-2 text-right font-mono ${
+                              m.plus_minus > 0 ? 'text-green-400' : m.plus_minus < 0 ? 'text-red-400' : 'text-court-muted'
+                            }`}>
+                              {m.plus_minus > 0 ? '+' : ''}{m.plus_minus}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-xs text-court-muted mt-2">
+                    Team-level game results. Individual player stats shown when available.
+                  </p>
+                </div>
+              )}
+
             </div>
           ) : null}
         </div>

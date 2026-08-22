@@ -14,15 +14,9 @@ import {
 } from "lucide-react";
 
 const features = [
-  { href: "/sql", label: "SQL Analytics", desc: "Query NBA data with SQL", icon: Database },
-  { href: "/shots", label: "Shot Charts", desc: "Visualize shot locations", icon: Target },
-  { href: "/teams", label: "Teams", desc: "Standings and team profiles", icon: Trophy },
-  { href: "/games", label: "Games", desc: "Browse game results", icon: Calendar },
-  { href: "/ratings", label: "Ratings", desc: "Player ratings (0-100)", icon: Star },
-  { href: "/compare", label: "Compare", desc: "Player vs player", icon: GitCompare },
-  { href: "/matches", label: "Matches", desc: "Game box scores", icon: LayoutGrid },
-  { href: "/lineups", label: "Lineups", desc: "5-man unit stats", icon: Wrench },
-  { href: "/chat", label: "AI Assistant", desc: "Ask questions in natural language", icon: MessageSquare },
+  { href: "/ratings", label: "Ratings", desc: "Player ratings with z-score normalization (0-100)", icon: Star },
+  { href: "/compare", label: "Compare", desc: "Head-to-head player comparison", icon: GitCompare },
+  { href: "/teams", label: "Teams", desc: "Standings, roster, and advanced metrics", icon: Trophy },
 ];
 
 export default function Home() {
@@ -33,10 +27,10 @@ export default function Home() {
           NBA Operations AI
         </h1>
         <p className="text-court-muted text-lg max-w-xl mx-auto">
-          SQL Analytics • Shot Charts • Teams • Games • Ratings • Compare • Matches • AI Assistant
+          Player Evaluation • Statistical Ratings • Similarity Analysis • Team Context
         </p>
         <div className="flex justify-center gap-2 mt-6">
-          {["Python", "FastAPI", "Next.js", "SQLite", "Gemini AI", "Recharts"].map(
+          {["Python", "FastAPI", "Next.js", "SQLite", "Recharts", "Cosine Similarity"].map(
             (tech) => (
               <span
                 key={tech}
